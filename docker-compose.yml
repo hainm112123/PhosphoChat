@@ -1,0 +1,18 @@
+# Neo4j for the PhosphoSIGNOR graph. Load it afterwards with:
+#   backend/.venv/Scripts/python backend/scripts/load_signor.py --file <PhosphoSIGNOR_all_Data.tsv> --wipe
+# If another Neo4j already uses ports 7474/7687 (e.g. the old signor-neo4j-test container),
+# stop it first or just keep using it.
+services:
+  neo4j:
+    image: neo4j:5
+    container_name: phosphochat-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:-testpassword}"
+    volumes:
+      - neo4j-data:/data
+
+volumes:
+  neo4j-data:

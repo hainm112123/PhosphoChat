@@ -1,0 +1,37 @@
+[project]
+name = "phosphochat"
+version = "0.1.0"
+description = "LLM-Wiki second brain over the PhosphoSIGNOR graph: capture, chat, wiki browser."
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic-ai-slim[groq,openai,anthropic,google]>=2.57,<3",
+    "fastapi>=0.146",
+    "uvicorn[standard]>=0.54",
+    "pydantic-settings>=2.16",
+    "python-dotenv>=1.2",
+    "python-multipart>=0.0.32",
+    "sse-starlette>=3.5",
+    "neo4j>=6.4,<7",
+    "httpx>=0.28",
+    "trafilatura>=2.3",
+    "pyyaml>=6",
+    "pypdf>=6.21",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9", "pytest-asyncio>=1.4"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["vault/template/**/*", "vault/template/**/.*", "vault/template/.agents/skills/*/SKILL.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = ["neo4j: needs a running Neo4j loaded with PhosphoSIGNOR"]

@@ -29,7 +29,7 @@ build-backend = "setuptools.build_meta"
 include = ["app*"]
 
 [tool.setuptools.package-data]
-app = ["vault/template/**/*", "vault/template/**/.*", "vault/template/.agents/skills/*/SKILL.md"]
+app = ["vault/template/**/*", "vault/template/**/.*", "prompts/*.md", "prompts/skills/*/SKILL.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

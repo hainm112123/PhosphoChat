@@ -96,6 +96,82 @@ def page_links(text: str) -> tuple[set[str], set[str]]:
     return pages, sources
 
 
+CITATION_RE = re.compile(r"\[\[\s*source:|SIGNOR-[A-Z]*\d+|\bPMIDs?\b", re.I)
+LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{2,}")
+
+
+def _blocks(body: str) -> list[str]:
+    """Paragraphs, list items and table body rows of a Markdown body (blockquotes unwrapped).
+
+    Headings, code fences, HTML comments, table header/separator rows and callout title
+    lines are not blocks."""
+    lines, out, para, in_code, table_row, in_item = body.splitlines(), [], [], False, 0, False
+    def flush():
+        if para:
+            out.append(" ".join(x.strip() for x in para))
+            para.clear()
+    for raw in lines:
+        line = raw
+        if line.lstrip().startswith("```"):
+            flush()
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
+        while line.lstrip().startswith(">"):  # unwrap blockquotes / callouts
+            line = line.lstrip()[1:].lstrip()
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("#", "<!--")):
+            flush()
+            table_row, in_item = 0, False
+            continue
+        if re.match(r"^\[!\w+\]", stripped):  # callout title line
+            flush()
+            continue
+        if stripped.startswith("|"):
+            flush()
+            table_row += 1
+            if table_row > 1 and not TABLE_SEP_RE.match(stripped):
+                out.append(stripped)
+            continue
+        table_row = 0
+        if LIST_ITEM_RE.match(line):
+            flush()
+            out.append(LIST_ITEM_RE.sub("", line, count=1).strip())
+            in_item = True
+            continue
+        if in_item and raw[:1] in (" ", "	"):  # wrapped continuation of a list item
+            out[-1] += " " + stripped
+            continue
+        in_item = False
+        para.append(stripped)
+    flush()
+    return out
+
+
+def uncited_blocks(body: str, allow_page_links: bool = False) -> list[str]:
+    """Blocks with no citation. A citation is [[source: ...]], a SIGNOR id or a PMID
+    (or any [[page]] link when allow_page_links, for recaps). Exempt: the **Summary:** line
+    and blocks that are just links (e.g. a 'See also' list)."""
+    missing = []
+    for block in _blocks(body):
+        if CITATION_RE.search(block):
+            continue
+        links = LINK_RE.findall(block)
+        if links and allow_page_links:
+            continue
+        if block.startswith(("**Summary:**", "**Summary**:", "Summary:")):
+            continue
+        if block.endswith(":"):  # lead-in to a list; the items themselves are checked
+            continue
+        rest = re.sub(r"[^A-Za-z]+", " ", LINK_RE.sub(" ", block)).split()
+        if links and len(rest) <= 3:  # link-only lines like "Related: [[a]], [[b]]"
+            continue
+        missing.append(block if len(block) <= 160 else block[:157] + "...")
+    return missing
+
+
 def _atomic_write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp")
@@ -232,6 +308,14 @@ class Vault:
             raise VaultError(f"Unknown sources {unknown}. Use exact filenames from list_sources.")
         if not body.strip():
             raise VaultError("Page body is empty.")
+        name_ = self.page_name(name)
+        if name_ not in SYSTEM_PAGES:
+            uncited = uncited_blocks(body, allow_page_links=name_.endswith("-recap"))
+            if uncited:
+                raise VaultError(
+                    f"{len(uncited)} paragraph(s)/list item(s)/table row(s) have no citation. End each "
+                    "with [[source: <file>.md]] or (SIGNOR-...; PMID ...) if a source states it; "
+                    "otherwise remove it. Uncited:\n" + "\n".join(f"- {b}" for b in uncited[:5]))
         meta = {"title": meta["title"], "summary": meta["summary"], "sources": srcs,
                 "last_updated": date.today().isoformat(),
                 **{k: v for k, v in meta.items() if k not in (*REQUIRED_PAGE_KEYS, "last_updated")}}
@@ -481,7 +565,7 @@ class Vault:
         source_names = {p.name for p in self.sources_dir.iterdir() if p.is_file()}
         index = self.index_entries()
         incoming: dict[str, set[str]] = {n: set() for n in names}
-        broken, schema = [], []
+        broken, schema, uncited = [], [], []
         for n in sorted(names):
             text = self.read_page(n)
             links, src_links = page_links(text)
@@ -504,6 +588,9 @@ class Vault:
                 schema.append({"page": n, "missing": missing})
             elif not body.strip():
                 schema.append({"page": n, "missing": ["body"]})
+            blocks = uncited_blocks(body, allow_page_links=n.endswith("-recap"))
+            if blocks:
+                uncited.append({"page": n, "count": len(blocks), "examples": blocks[:3]})
         orphans = sorted(n for n in names if not incoming[n] and n not in SYSTEM_PAGES
                          and not n.endswith("-recap"))
         return {
@@ -514,6 +601,7 @@ class Vault:
             "missing_from_index": sorted(n for n in names if n not in index and n not in SYSTEM_PAGES),
             "dead_index_entries": sorted(n for n in index if n not in names),
             "schema_violations": schema,
+            "uncited_blocks": uncited,
         }
 
     # ---- git
@@ -560,6 +648,13 @@ class Vault:
 
 # --------------------------------------------------------------------------- registry
 
+LEGACY_AGENT_FILES = ("AGENTS.md", "CLAUDE.md", ".agents")
+
+
+def is_vault_dir(p: Path) -> bool:
+    return (p / "index.md").is_file() and (p / "wiki").is_dir()
+
+
 class VaultRegistry:
     def __init__(self, base: Path):
         self.base = base
@@ -568,12 +663,11 @@ class VaultRegistry:
     def names(self) -> list[str]:
         if not self.base.is_dir():
             return []
-        return sorted(p.name for p in self.base.iterdir()
-                      if p.is_dir() and (p / "AGENTS.md").is_file())
+        return sorted(p.name for p in self.base.iterdir() if p.is_dir() and is_vault_dir(p))
 
     def get(self, name: str) -> Vault:
         if name not in self._vaults:
-            if not VAULT_NAME_RE.match(name) or not (self.base / name / "AGENTS.md").is_file():
+            if not VAULT_NAME_RE.match(name) or not is_vault_dir(self.base / name):
                 raise KeyError(name)
             self._vaults[name] = Vault(self.base / name)
         return self._vaults[name]
@@ -590,6 +684,25 @@ class VaultRegistry:
         vault.git_init()
         self._vaults[name] = vault
         return vault
+
+    def migrate_all(self) -> list[str]:
+        """Remove per-vault agent files left by older versions (they now live in app/prompts)."""
+        changed = []
+        for name in self.names():
+            v = self.get(name)
+            removed = []
+            for f in LEGACY_AGENT_FILES:
+                p = v.root / f
+                if p.is_dir():
+                    shutil.rmtree(p)
+                    removed.append(f)
+                elif p.is_file():
+                    p.unlink()
+                    removed.append(f)
+            if removed:
+                v.commit("move agent files to the app (" + ", ".join(removed) + ")")
+                changed.append(name)
+        return changed
 
     def ensure(self, name: str) -> Vault:
         try:

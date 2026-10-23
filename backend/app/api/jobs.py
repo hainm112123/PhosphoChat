@@ -79,7 +79,7 @@ async def capture(vault: str, url: str | None = Form(None), text: str | None = F
 
 
 @router.post("/vaults/{vault}/chat/save", status_code=202)
-def save_answer(vault: str, body: SaveAnswer) -> dict:
+async def save_answer(vault: str, body: SaveAnswer) -> dict:
     """Save a chat answer as a note source and capture it into the wiki."""
     v = get_vault(vault)
     title = body.title or body.question.strip().splitlines()[0][:80] or "Chat answer"
@@ -91,7 +91,7 @@ def save_answer(vault: str, body: SaveAnswer) -> dict:
 
 
 @router.post("/vaults/{vault}/jobs/{kind}", status_code=202)
-def start_job(vault: str, kind: Literal["capture", "sync", "lint", "digest"],
+async def start_job(vault: str, kind: Literal["capture", "sync", "lint", "digest"],
               options: JobOptions | None = None) -> dict:
     v = get_vault(vault)
     opts = options or JobOptions()

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, followJob, type Job, type JobEvent, type JobResult } from "../api";
+import { api, followJob, type FactCheck, type Job, type JobEvent, type JobResult } from "../api";
 import { Markdown } from "./Markdown";
 import { useVault } from "../vault";
 
@@ -44,6 +44,7 @@ export function JobProgress({ job, onFinished }: { job: Job; onFinished?: (job: 
   const error = events.find((e) => e.type === "error");
   const infos = events.filter((e) => e.type === "info");
   const result = done?.result as JobResult | undefined;
+  const factCheck = (result?.fact_check ?? events.find((e) => e.type === "fact_check")) as FactCheck | undefined;
   const source = job.params?.source as string | undefined;
 
   return (
@@ -62,6 +63,22 @@ export function JobProgress({ job, onFinished }: { job: Job; onFinished?: (job: 
           ))}
           {status === "running" && <li className="muted pulse">working...</li>}
         </ol>
+      )}
+      {factCheck && (
+        <details className="fact-check" open={factCheck.issues_found > 0 && !result}>
+          <summary>
+            Fact-check: {factCheck.issues_found === 0
+              ? `all claims on ${factCheck.checked_pages.length} page(s) are supported by the source`
+              : `${factCheck.issues_found} unsupported claim(s) sent back to the writer${result ? " and revised" : ""}`}
+          </summary>
+          {factCheck.issues.map((i, k) => (
+            <div key={k} className="small fact-issue">
+              <Link to={`/${vault}/wiki/${i.page}`}>{i.page}</Link>{" "}
+              <span className="badge badge-failed">{i.problem.replace(/_/g, " ")}</span>{" "}
+              “{i.claim}” <span className="muted">— {i.note}</span>
+            </div>
+          ))}
+        </details>
       )}
       {result && (
         <div className="job-result">

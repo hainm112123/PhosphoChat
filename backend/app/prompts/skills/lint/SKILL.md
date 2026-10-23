@@ -8,8 +8,9 @@ description: Health-check the wiki for broken links, orphan pages, stale pages, 
 Report first, then fix only what's mechanical. Anything that changes meaning goes to the user.
 
 PhosphoChat has already run the mechanical checks and put the results in the task:
-broken links, orphan pages, index drift (missing or dead entries) and schema violations
-(missing frontmatter). You do the checks that need reading.
+broken links, orphan pages, index drift (missing or dead entries), schema violations
+(missing frontmatter) and uncited blocks (paragraphs, list items or table rows without a
+`[[source: ...]]` or SIGNOR citation). You do the checks that need reading.
 
 ## Checks you run
 1. **Stale pages**: a source newer than a page's `last_updated` mentions the page's topic but isn't
@@ -18,8 +19,7 @@ broken links, orphan pages, index drift (missing or dead entries) and schema vio
    dates, definitions, conclusions). List each pair with both citations. Also list unresolved
    `> [!warning] Contradiction` callouts (`search_pages("[!warning]")`).
 3. **Duplicates**: pages covering the same thing under different names.
-4. **Unsourced claims**: pages with claims that have no `[[source: ...]]` or SIGNOR citation.
-5. **Coverage gaps**: concepts linked often but with a thin page or none, and topics backed by only
+4. **Coverage gaps**: concepts linked often but with a thin page or none, and topics backed by only
    one source. These are research suggestions.
 
 ## Safe auto-fixes (do these)
@@ -28,7 +28,8 @@ broken links, orphan pages, index drift (missing or dead entries) and schema vio
 - Fix broken links when the intended target is unambiguous (a typo or renamed page).
 
 ## Needs user approval (don't do these)
-Merging or deleting pages, resolving contradictions, rewriting content or removing claims.
+Merging or deleting pages, resolving contradictions, rewriting content or removing claims
+(including uncited ones: list them for the user instead).
 
 ## Output
 1. `write_page("lint-report", ...)` with frontmatter (`title: Lint report`, a `summary` with the
@@ -36,7 +37,7 @@ Merging or deleting pages, resolving contradictions, rewriting content or removi
    Overwrite the previous report.
 2. Return the report:
    - `report`: the counts, what you fixed, and the top 3 decisions for the user with a proposed action each.
-   - `log_lines`: `["Issues found: <total> (broken links X, orphans X, stale X, contradictions X, duplicates X, schema X)", "Auto-fixed: <list or none>", "Needs decision: <list or none>"]`.
+   - `log_lines`: `["Issues found: <total> (broken links X, orphans X, stale X, contradictions X, duplicates X, schema X, uncited X)", "Auto-fixed: <list or none>", "Needs decision: <list or none>"]`.
 
 ## Rules
 - Never modify sources.

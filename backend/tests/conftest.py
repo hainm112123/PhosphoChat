@@ -14,6 +14,13 @@ def vault(tmp_path):
     return VaultRegistry(tmp_path).create("test")
 
 
+@pytest.fixture(autouse=True)
+def no_verify_by_default(monkeypatch):
+    """Job tests script the writer only; tests of the fact-check turn it back on."""
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "verify_captures", False)
+
+
 @pytest.fixture(scope="session")
 def neo4j_ready():
     from app.graph import signor

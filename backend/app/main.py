@@ -23,7 +23,9 @@ from app.graph.signor import close_driver  # noqa: E402
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    registry().ensure(get_settings().default_vault)  # empty vault from the template on first run
+    reg = registry()
+    reg.migrate_all()  # drop per-vault AGENTS.md/CLAUDE.md/skills left by older versions
+    reg.ensure(get_settings().default_vault)  # empty vault from the template on first run
     yield
     close_driver()
 

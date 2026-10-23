@@ -44,7 +44,7 @@ async def test_capture_job_end_to_end(vault):
     src = vault.save_source(title="MARCKS note", body="MARCKS is a PKC substrate.",
                             source_url="pasted", content_type="note")
     final = lambda m, info: [(info.output_tools[0].name,  # noqa: E731
-                              {"report": "Created [[marcks]].", "log_lines": ["Key takeaway: x"]})]
+                              {"report": "Created [[marcks]].", "key_takeaway": "x"})]
     model = scripted([
         [("read_source", {"name": src})],
         [("write_page", {"name": "marcks", "content": _page(src)})],
@@ -58,6 +58,7 @@ async def test_capture_job_end_to_end(vault):
     entry = vault.log_entries()[0]
     assert entry.kind == "capture" and f"sources/{src}" in entry.body
     assert "[[marcks]]" in entry.body and "Key takeaway: x" in entry.body
+    assert "Contradictions: none" in entry.body and "Fact-check" not in entry.body
     msgs = [h["message"] for h in vault.history()]
     assert msgs[:2] == [f"capture: {src}", f"source: {src}"]
     assert [e["name"] for e in events if e["type"] == "tool_call"] == ["read_source", "write_page"]
@@ -121,3 +122,77 @@ def test_tool_results_are_capped(monkeypatch):
     monkeypatch.setattr(get_settings(), "tool_output_chars", 500)
     text = out({"total": 300, "results": [{"enzyme": f"K{i}", "sites": ["Ser1"]} for i in range(300)]})
     assert len(text) <= 600 and "shortened" in text
+
+
+def _verifier(issues_per_call):
+    """Scripted fact-checker: returns the next list of issues on each call."""
+    calls = iter(issues_per_call)
+
+    def fn(messages, info: AgentInfo):
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"issues": next(calls)})])
+    return FunctionModel(fn)
+
+
+async def test_fact_check_sends_unsupported_claims_back(vault, monkeypatch):
+    from app.agents.verify import verifier_agent
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "verify_captures", True)
+    src = vault.save_source(title="MARCKS note", body="MARCKS is a PKC substrate.",
+                            source_url="pasted", content_type="note")
+    bad = _page(src).replace("MARCKS is phosphorylated by PKC", "PKC uses ATP to phosphorylate MARCKS")
+    seen = {}
+
+    def revision(messages, info):
+        seen["prompt"] = messages[-1].parts[-1].content
+        return [("write_page", {"name": "marcks", "content": _page(src)})]
+    final = lambda m, info: [(info.output_tools[0].name, {"report": "ok", "key_takeaway": "x"})]  # noqa: E731
+    writer = scripted([[("write_page", {"name": "marcks", "content": bad})], final, revision, final])
+    issue = {"page": "marcks", "claim": "PKC uses ATP to phosphorylate MARCKS",
+             "problem": "not_in_source", "note": "the source does not mention ATP"}
+    with job_agent().override(model=writer), verifier_agent().override(model=_verifier([[issue]])):
+        result, events = await _collect(vault, "capture", {"source": src})
+
+    assert result["fact_check"]["issues_found"] == 1
+    assert "ATP" in seen["prompt"] and "remove the claim" in seen["prompt"]
+    assert "ATP" not in vault.read_page("marcks")             # the revision was applied
+    assert any(e["type"] == "fact_check" for e in events)
+    assert "Fact-check: 1 unsupported claim(s) found" in vault.log_entries()[0].body
+
+
+async def test_fact_check_clean_pages_need_no_revision(vault, monkeypatch):
+    from app.agents.verify import verifier_agent
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "verify_captures", True)
+    src = vault.save_source(title="n", body="MARCKS is a PKC substrate.", source_url="pasted",
+                            content_type="note")
+    final = lambda m, info: [(info.output_tools[0].name, {"report": "ok"})]  # noqa: E731
+    writer = scripted([[("write_page", {"name": "marcks", "content": _page(src)})], final])
+    with job_agent().override(model=writer), verifier_agent().override(model=_verifier([[]])):
+        result, _ = await _collect(vault, "capture", {"source": src})
+    assert result["fact_check"] == {"checked_pages": ["marcks"], "issues_found": 0, "issues": []}
+
+
+async def test_verify_false_skips_fact_check(vault, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "verify_captures", True)
+    src = vault.save_source(title="n", body="b", source_url="pasted", content_type="note")
+    final = lambda m, info: [(info.output_tools[0].name, {"report": "ok"})]  # noqa: E731
+    writer = scripted([[("write_page", {"name": "marcks", "content": _page(src)})], final])
+    with job_agent().override(model=writer):  # no verifier override: it must not be called
+        result, _ = await _collect(vault, "capture", {"source": src, "verify": False})
+    assert result["fact_check"] is None
+
+
+async def test_uncited_page_is_rejected_then_fixed(vault):
+    src = vault.save_source(title="n", body="b", source_url="pasted", content_type="note")
+    final = lambda m, info: [(info.output_tools[0].name, {"report": "ok"})]  # noqa: E731
+    model = scripted([
+        [("write_page", {"name": "marcks", "content": _page(src) + "\nKinases use ATP.\n"})],
+        [("write_page", {"name": "marcks", "content": _page(src)})],
+        final,
+    ])
+    with job_agent().override(model=model):
+        result, events = await _collect(vault, "capture", {"source": src})
+    retries = [e for e in events if e["type"] == "tool_result" and e["retry"]]
+    assert retries and "Kinases use ATP." in retries[0]["content"]
+    assert result["pages_created"] == ["marcks"]

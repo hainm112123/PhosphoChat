@@ -8,8 +8,8 @@ from functools import lru_cache
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 
+from app import prompts
 from app.config import get_settings
-from app.graph.signor import INSTRUCTIONS as GRAPH_INSTRUCTIONS
 from app.tools.agent_tools import Deps, graph_toolset, skill_toolset, vault_read_toolset
 
 CHAT_RULES = """\
@@ -29,9 +29,7 @@ and sources and query the PhosphoSIGNOR graph; you cannot change the vault.
 
 
 def _instructions(ctx: RunContext[Deps]) -> str:
-    agents_md = (ctx.deps.vault.root / "AGENTS.md")
-    schema = agents_md.read_text(encoding="utf-8") if agents_md.is_file() else ""
-    return f"{schema}\n\n{GRAPH_INSTRUCTIONS}\n\n{CHAT_RULES}"
+    return f"{prompts.schema()}\n\n{CHAT_RULES}"
 
 
 @lru_cache

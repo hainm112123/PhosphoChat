@@ -19,12 +19,20 @@ export type SourceSummary = {
 export type Source = { name: string; meta: Record<string, unknown>; body: string; cited_by: string[] };
 export type LogEntry = { timestamp: string; kind: string; body: string };
 export type JobEvent = { type: string; [k: string]: unknown };
+export type FactIssue = {
+  page: string;
+  claim: string;
+  problem: "not_in_source" | "contradicts_source" | "wrong_citation";
+  note: string;
+};
+export type FactCheck = { checked_pages: string[]; issues_found: number; issues: FactIssue[] };
 export type JobResult = {
   report: string;
   pages_created: string[];
   pages_updated: string[];
   warnings: string[];
   commit: string | null;
+  fact_check?: FactCheck | null;
 };
 export type Job = {
   id: string;
@@ -141,7 +149,7 @@ export function followJob(id: string, onEvent: (e: JobEvent) => void): () => voi
     onEvent(ev);
     if (ev.type === "done" || ev.type === "error") es.close();
   };
-  for (const type of ["info", "text", "tool_call", "tool_result", "usage", "done", "error"]) {
+  for (const type of ["info", "text", "tool_call", "tool_result", "fact_check", "usage", "done", "error"]) {
     es.addEventListener(type, handler as EventListener);
   }
   es.onerror = () => es.close();

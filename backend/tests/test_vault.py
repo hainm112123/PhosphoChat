@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.vault.store import DuplicateSource, VaultError, split_frontmatter
+from app.vault.store import DuplicateSource, VaultError, VaultRegistry, split_frontmatter, uncited_blocks
 
 PAGE = """---
 title: Protein kinase C
@@ -24,8 +24,61 @@ def test_new_vault_is_empty_and_committed(vault):
     assert vault.page_names() == []
     assert vault.list_sources() == []
     assert vault.read_log_text().strip() == "# Log"
-    assert (vault.root / ".agents/skills/capture/SKILL.md").is_file()
+    for agent_file in ("AGENTS.md", "CLAUDE.md", ".agents"):  # content only
+        assert not (vault.root / agent_file).exists()
     assert [h["message"] for h in vault.history()] == ["init vault"]
+
+
+def test_migrate_removes_legacy_agent_files(tmp_path):
+    reg = VaultRegistry(tmp_path)
+    v = reg.create("old")
+    (v.root / "AGENTS.md").write_text("schema", encoding="utf-8")
+    (v.root / "CLAUDE.md").write_text("@AGENTS.md", encoding="utf-8")
+    (v.root / ".agents/skills/capture").mkdir(parents=True)
+    (v.root / ".agents/skills/capture/SKILL.md").write_text("x", encoding="utf-8")
+    v.commit("legacy layout")
+    assert reg.migrate_all() == ["old"]
+    assert not (v.root / "AGENTS.md").exists() and not (v.root / ".agents").exists()
+    assert v.history()[0]["message"].startswith("move agent files to the app")
+    assert reg.migrate_all() == []  # idempotent
+
+
+def test_prompts_are_app_wide():
+    from app import prompts
+    assert set(prompts.skill_names()) == {"capture", "digest", "lint", "query", "sync"}
+    assert "Grounding" in prompts.schema()
+    with pytest.raises(KeyError):
+        prompts.skill("../AGENTS")
+
+
+def test_uncited_blocks():
+    body = """**Summary:** a summary needs no citation.
+
+A cited paragraph [[source: a.md]].
+
+An uncited paragraph.
+
+Phosphorylation can:
+- change activity [[source: a.md]]
+- change stability
+  over a wrapped line
+- See also [[protein-kinase]]
+
+| enzyme | site |
+|---|---|
+| PRKCA | Ser174 (SIGNOR-277418) |
+| CDK2 | Ser315 |
+
+> [!warning] Contradiction
+> Source A says X [[source: a.md]].
+
+```
+code is ignored
+```
+"""
+    assert uncited_blocks(body) == ["An uncited paragraph.", "change stability over a wrapped line",
+                                    "| CDK2 | Ser315 |"]
+    assert uncited_blocks("Week summary links [[marcks]].", allow_page_links=True) == []
 
 
 def test_page_name_rules(vault):
@@ -61,6 +114,8 @@ def test_write_page_validates_and_stamps(vault):
         vault.write_page("pkc", "# PKC\nno frontmatter")
     with pytest.raises(VaultError, match="Unknown sources"):
         vault.write_page("pkc", PAGE.format(src="nope.md"))
+    with pytest.raises(VaultError, match="no citation"):
+        vault.write_page("pkc", PAGE.format(src=src) + "\nKinases use ATP.\n")
     assert vault.write_page("protein-kinase-c", PAGE.format(src=src)) == "created"
     assert vault.write_page("protein-kinase-c", PAGE.format(src=src)) == "updated"
     meta = vault.page_meta("protein-kinase-c")
@@ -95,8 +150,10 @@ def test_upsert_index_sections(vault):
 def test_lint_mechanical(vault):
     src = _source(vault)
     vault.write_page("protein-kinase-c", PAGE.format(src=src))  # links to missing [[marcks]]
-    (vault.wiki_dir / "bad.md").write_text("# no frontmatter [[source: ghost.md]]", encoding="utf-8")
+    (vault.wiki_dir / "bad.md").write_text("# no frontmatter [[source: ghost.md]]\n\nUncited claim.\n",
+                                           encoding="utf-8")
     f = vault.lint_mechanical()
+    assert f["uncited_blocks"] == [{"page": "bad", "count": 1, "examples": ["Uncited claim."]}]
     assert {"page": "protein-kinase-c", "link": "[[marcks]]"} in f["broken_links"]
     assert {"page": "bad", "link": "[[source: ghost.md]]"} in f["broken_links"]
     assert set(f["orphans"]) == {"protein-kinase-c", "bad"}

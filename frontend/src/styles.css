@@ -135,6 +135,9 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .steps { margin: 8px 0 0; padding-left: 22px; font-size: 13px; }
 .steps li { margin: 1px 0; }
 .job-result { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+.fact-check { margin-top: 8px; font-size: 13px; }
+.fact-check summary { cursor: pointer; }
+.fact-issue { margin: 6px 0 0 14px; }
 .job-buttons { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 
 /* chat */

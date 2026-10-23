@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from pydantic_ai import FunctionToolset, ModelRetry, RunContext
 
+from app import prompts
 from app.config import get_settings
 from app.graph import signor
 from app.vault.store import Vault, VaultError, page_links
@@ -184,11 +185,11 @@ def upsert_index(ctx: RunContext[Deps], name: str, description: str,
 
 @_error_as_result
 def load_skill(ctx: RunContext[Deps], name: Literal["query", "capture", "sync", "lint", "digest"]) -> str:
-    """Load a skill's instructions (SKILL.md) from the vault, e.g. 'query' for how to answer and cite."""
-    path = ctx.deps.vault.root / ".agents" / "skills" / name / "SKILL.md"
-    if not path.is_file():
-        raise VaultError(f"No skill '{name}' in this vault.")
-    return out(path.read_text(encoding="utf-8"))
+    """Load a skill's instructions (SKILL.md), e.g. 'query' for how to answer and cite."""
+    try:
+        return out(prompts.skill(name))
+    except KeyError:
+        raise VaultError(f"No skill '{name}'. Available: {', '.join(prompts.skill_names())}.") from None
 
 
 # --------------------------------------------------------------------------- graph

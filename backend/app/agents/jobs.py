@@ -1,8 +1,8 @@
 """Skill-driven write jobs: capture, sync, lint, digest.
 
-Each job is: deterministic pre-step (in code) -> agent run with AGENTS.md + SKILL.md as
-instructions and the write tools -> deterministic post-step (index safety net, log entry,
-git commit). The model only does the editorial work; bookkeeping it could get wrong
+Each job is: deterministic pre-step (in code) -> agent run with the app's AGENTS.md + SKILL.md
+as instructions and the write tools -> (capture/sync) fact-check against the sources plus one
+revision turn -> deterministic post-step (index safety net, log entry, git commit). The model only does the editorial work; bookkeeping it could get wrong
 (source files, log placement, unprocessed-source detection, mechanical lint) is code.
 """
 
@@ -18,9 +18,10 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
-from app.agents.runtime import stream_run
+from app import prompts
+from app.agents.runtime import explain_error, stream_run
+from app.agents.verify import Issue, verify_pages
 from app.config import get_settings
-from app.graph.signor import INSTRUCTIONS as GRAPH_INSTRUCTIONS
 from app.tools.agent_tools import Deps, graph_toolset, vault_read_toolset, vault_write_toolset
 from app.vault.store import Vault, page_links
 
@@ -30,8 +31,11 @@ Emit = Callable[[dict], Awaitable[None]]
 
 class JobReport(BaseModel):
     report: str = Field(description="Markdown summary for the user.")
+    key_takeaway: str | None = Field(None, description="capture/sync: the single most important point.")
+    contradictions: list[str] = Field(default_factory=list,
+                                      description="capture/sync: pages where a contradiction callout was added.")
     log_lines: list[str] = Field(default_factory=list,
-                                 description="Extra bullet lines for the log.md entry, as the skill says.")
+                                 description="lint/digest: extra bullet lines for the log.md entry, as the skill says.")
 
 
 JOB_RULES = """\
@@ -42,10 +46,8 @@ in your report. Work only through your tools. When the work is done, return the 
 
 
 def _instructions(ctx: RunContext[JobContext]) -> str:
-    v = ctx.deps.vault
-    schema = (v.root / "AGENTS.md").read_text(encoding="utf-8")
-    skill = (v.root / ".agents" / "skills" / ctx.deps.kind / "SKILL.md").read_text(encoding="utf-8")
-    return f"{schema}\n\n{GRAPH_INSTRUCTIONS}\n\n{JOB_RULES}\n\n# Skill: {ctx.deps.kind}\n\n{skill}"
+    return (f"{prompts.schema()}\n\n{JOB_RULES}\n\n"
+            f"# Skill: {ctx.deps.kind}\n\n{prompts.skill(ctx.deps.kind)}")
 
 
 @dataclass
@@ -138,7 +140,8 @@ def _entry_date(ts: str) -> date:
 
 # --------------------------------------------------------------------------- post-step
 
-def finish(vault: Vault, kind: JobKind, deps: JobContext, ctx: dict, report: JobReport) -> dict:
+def finish(vault: Vault, kind: JobKind, deps: JobContext, ctx: dict, report: JobReport,
+           fact_check: dict | None = None) -> dict:
     # Safety net: every created page ends up in the index.
     index = vault.index_entries()
     for n in deps.created:
@@ -161,8 +164,17 @@ def finish(vault: Vault, kind: JobKind, deps: JobContext, ctx: dict, report: Job
     elif kind == "sync":
         lines.append("Sources processed: " + ", ".join(ctx["sources"]))
     if kind in ("capture", "sync"):
-        lines += [f"Pages created: {fmt(deps.created)}", f"Pages updated: {fmt(deps.updated)}"]
-    lines += report.log_lines
+        lines += [f"Pages created: {fmt(deps.created)}", f"Pages updated: {fmt(deps.updated)}",
+                  f"Contradictions: {fmt([c for c in report.contradictions if c in names])}"]
+        if fact_check is not None and fact_check.get("error"):
+            lines.append("Fact-check: unavailable (pages kept unverified)")
+        elif fact_check is not None:
+            lines.append(f"Fact-check: {fact_check['issues_found']} unsupported claim(s) found"
+                         + (", sent back for revision" if fact_check["issues_found"] else ""))
+        if report.key_takeaway:
+            lines.append(f"Key takeaway: {' '.join(report.key_takeaway.split())}")
+    else:
+        lines += report.log_lines
     if kind == "lint" and ctx.get("auto_fixed"):
         lines.append("Auto-fixed by PhosphoChat: " + ", ".join(ctx["auto_fixed"]))
     vault.prepend_log(kind, lines)
@@ -172,7 +184,8 @@ def finish(vault: Vault, kind: JobKind, deps: JobContext, ctx: dict, report: Job
                "lint": "lint", "digest": f"digest: {ctx.get('recap', '')}"}[kind]
     sha = vault.commit(subject)
     return {"report": report.report, "pages_created": deps.created,
-            "pages_updated": deps.updated, "warnings": warnings, "commit": sha}
+            "pages_updated": deps.updated, "warnings": warnings, "commit": sha,
+            "fact_check": fact_check}
 
 
 # --------------------------------------------------------------------------- run
@@ -186,20 +199,62 @@ async def run_job(vault: Vault, kind: JobKind, params: dict, emit: Emit) -> dict
             await emit({"type": "info", "message": ctx["report"]})
             return {"report": ctx["report"], "pages_created": [], "pages_updated": [],
                     "warnings": [], "commit": vault.commit(f"{kind}: prepare")}
-        await emit({"type": "info", "message": f"Running {kind} with {get_settings().model}"})
+        model = params.get("model")
+        await emit({"type": "info", "message": f"Running {kind} with {model or get_settings().model}"})
         deps = JobContext(vault=vault, kind=kind)
-        report: JobReport | None = None
         try:
-            async for ev in stream_run(job_agent(), prompt, deps=deps,
-                                       request_limit=get_settings().job_request_limit,
-                                       model=params.get("model")):
-                if ev["type"] == "result":
-                    report = ev["output"]
-                    await emit({"type": "usage", **ev["usage"]})
-                else:
-                    await emit(ev)
+            report, messages = await _agent_turn(prompt, deps, model, emit)
+            fact_check = None
+            verify = params.get("verify", get_settings().verify_captures)
+            if kind in ("capture", "sync") and verify and deps.touched():
+                fact_check, revised = await _fact_check(vault, ctx["sources"], deps, messages,
+                                                        model, emit)
+                report = revised or report
         except BaseException:
             vault.rollback()
             raise
-        assert report is not None
-        return finish(vault, kind, deps, ctx, report)
+        return finish(vault, kind, deps, ctx, report, fact_check)
+
+
+async def _agent_turn(prompt: str, deps: JobContext, model: str | None, emit: Emit,
+                      history: list | None = None) -> tuple[JobReport, list]:
+    report, messages = None, []
+    async for ev in stream_run(job_agent(), prompt, deps=deps, history=history,
+                               request_limit=get_settings().job_request_limit, model=model):
+        if ev["type"] == "result":
+            report, messages = ev["output"], ev["messages"]
+            await emit({"type": "usage", **ev["usage"]})
+        else:
+            await emit(ev)
+    assert report is not None
+    return report, messages
+
+
+def _issue_lines(issues: list[Issue]) -> str:
+    return "\n".join(f"- [[{i.page}]] ({i.problem}): \"{i.claim}\" (source: {i.note})" for i in issues)
+
+
+async def _fact_check(vault: Vault, sources: list[str], deps: JobContext, messages: list,
+                      model: str | None, emit: Emit) -> tuple[dict, JobReport | None]:
+    """Verify the touched pages against the job's sources; if anything is unsupported, give
+    the writer one revision turn (continuing its own conversation)."""
+    pages = deps.touched()
+    await emit({"type": "info", "message": f"Fact-checking {len(pages)} page(s) against the source"})
+    try:
+        issues = await verify_pages(vault, sources, pages, model)
+    except Exception as e:  # noqa: BLE001 - a failed check must not throw away the pages
+        result = {"checked_pages": pages, "issues_found": 0, "issues": [],
+                  "error": f"Fact-check unavailable: {explain_error(e)}"}
+        await emit({"type": "fact_check", **result})
+        return result, None
+    result = {"checked_pages": pages, "issues_found": len(issues),
+              "issues": [i.model_dump() for i in issues]}
+    await emit({"type": "fact_check", **result})
+    if not issues:
+        return result, None
+    prompt = ("A fact-check of your pages against the source found claims the source does not "
+              "support:\n" + _issue_lines(issues) + "\n\nFor each one, remove the claim or rewrite "
+              "it to say only what the source states. Use write_page with the whole corrected page; "
+              "change nothing else. Then return the final report again.")
+    revised, _ = await _agent_turn(prompt, deps, model, emit, history=messages)
+    return result, revised

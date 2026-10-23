@@ -18,7 +18,7 @@ from pydantic_ai.messages import (
     TextPartDelta,
 )
 
-from app.llm import model_name, model_settings
+from app.llm import get_model, model_settings
 
 PREVIEW_CHARS = 1500
 
@@ -31,8 +31,11 @@ def _preview(content: Any) -> str:
 def explain_error(e: Exception) -> str:
     if isinstance(e, ModelHTTPError):
         if e.status_code == 429:
-            return ("The model provider's rate limit was reached (HTTP 429). Wait a minute and "
-                    "retry, or switch MODEL to one with a higher limit.")
+            detail = e.body.get("error", {}).get("message", "") if isinstance(e.body, dict) else ""
+            return ("The model provider's rate limit was reached (HTTP 429) even after waiting. "
+                    "If a single request is larger than the per-minute limit, waiting can't help: "
+                    "lower TOOL_OUTPUT_CHARS, or switch MODEL to one with a higher limit."
+                    + (f"\nProvider says: {detail.split(' Need more tokens?')[0]}" if detail else ""))
         if e.status_code in (401, 403):
             return f"The model provider rejected the API key (HTTP {e.status_code}). Check .env."
         return f"Model provider error (HTTP {e.status_code}): {str(e.body)[:300]}"
@@ -46,7 +49,7 @@ async def stream_run(agent: Agent, prompt: str, *, deps: Any, request_limit: int
                      model: str | None = None) -> AsyncIterator[dict]:
     """Yield UI events; the last one is {"type": "result", "output", "messages", "usage"}."""
     async with agent.run_stream_events(
-        prompt, deps=deps, message_history=list(history or []), model=model_name(model),
+        prompt, deps=deps, message_history=list(history or []), model=get_model(model),
         model_settings=model_settings(), usage_limits=UsageLimits(request_limit=request_limit),
     ) as events:
         async for ev in events:

@@ -53,6 +53,7 @@ switching provider is a config change:
 | Claude | `anthropic:claude-sonnet-5-5` | `ANTHROPIC_API_KEY` (Console key, not a Pro login) |
 | Google AI Studio | `google-gla:gemini-2.5-flash` | `GOOGLE_API_KEY` |
 | OpenAI-compatible / Ollama | `openai:qwen3:14b` | `OPENAI_API_KEY=ollama`, `OPENAI_BASE_URL=http://localhost:11434/v1` |
+| Oxion AI | `oxion:<model-id>` (ids from `GET https://www.oxionai.com/v1/models`) | `OXION_API_KEY` (starts with `cc_`); optional `OXION_BASE_URL` |
 
 Groq's free tier has tight tokens-per-minute limits. Every tool result is capped at
 `TOOL_OUTPUT_CHARS`, and a rate-limit error shows up as a readable message in the UI.

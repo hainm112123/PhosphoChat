@@ -10,6 +10,5 @@ frontend/dist/
 vaults/*
 !vaults/.gitkeep
 HANDOFF.md
-.env.example
 .claude
 .vscode

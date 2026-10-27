@@ -47,8 +47,23 @@ export type Job = {
   retryable?: boolean;
 };
 
+export type Role = "user" | "admin";
+export type User = { id: number; username: string; role: Role; disabled: boolean; created_at: string };
+
+/** Fired when the server says the session is gone (expired, logged out elsewhere, disabled). */
+export const UNAUTHORIZED_EVENT = "phosphochat:unauthorized";
+
+export class HttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
+  if (res.status === 401 && !path.startsWith("/api/auth/")) {
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+  }
   if (!res.ok) {
     let detail = `${res.status} ${res.statusText}`;
     try {
@@ -57,15 +72,41 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* not JSON */
     }
-    throw new Error(detail);
+    throw new HttpError(detail, res.status);
   }
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
+const json = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
+
+export const authApi = {
+  status: () => request<{ needs_admin: boolean }>("/api/auth/status"),
+  me: () => request<User>("/api/auth/me"),
+  login: (username: string, password: string) => request<User>("/api/auth/login", json("POST", { username, password })),
+  logout: () => request<void>("/api/auth/logout", { method: "POST" }),
+  changePassword: (current: string, next: string) =>
+    request<void>("/api/auth/password", json("POST", { current, new: next })),
+  users: () => request<User[]>("/api/users"),
+  createUser: (username: string, password: string, role: Role) =>
+    request<User>("/api/users", json("POST", { username, password, role })),
+  updateUser: (id: number, patch: { role?: Role; password?: string; disabled?: boolean }) =>
+    request<User>(`/api/users/${id}`, json("PATCH", patch)),
+  deleteUser: (id: number) => request<void>(`/api/users/${id}`, { method: "DELETE" }),
+};
+
 const v = (vault: string) => `/api/vaults/${encodeURIComponent(vault)}`;
 
 export const api = {
-  config: () => request<{ model: string; default_vault: string; verify_captures: boolean }>("/api/config"),
+  config: () => request<{
+    model: string;
+    models: { chat: string; job: string; verify: string };
+    default_vault: string;
+    verify_captures: boolean;
+  }>("/api/config"),
   health: () => request<{ graph: { ok: boolean; error?: string } }>("/api/health"),
   vaults: () => request<{ name: string; pages: number; sources: number }[]>("/api/vaults"),
   createVault: (name: string) =>
@@ -115,6 +156,7 @@ export async function streamChat(
     body: JSON.stringify(body),
     signal,
   });
+  if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
   if (!res.ok || !res.body) throw new Error(`${res.status} ${res.statusText}`);
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";

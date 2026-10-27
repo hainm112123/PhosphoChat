@@ -46,23 +46,25 @@ def chat_agent() -> Agent[Deps, str]:
 # --------------------------------------------------------------------------- sessions
 
 class ChatSessions:
-    """In-memory conversation history per (vault, session), trimmed to whole turns."""
+    """In-memory conversation history per (user, vault, session), trimmed to whole turns.
+    Keyed by user so one user can't continue or read another's conversation."""
 
-    def __init__(self, max_sessions: int = 200):
-        self._data: OrderedDict[tuple[str, str], list[ModelMessage]] = OrderedDict()
+    def __init__(self, max_sessions: int = 500):
+        self._data: OrderedDict[tuple[int, str, str], list[ModelMessage]] = OrderedDict()
         self.max_sessions = max_sessions
 
-    def get(self, vault: str, session: str) -> list[ModelMessage]:
-        return list(self._data.get((vault, session), []))
+    def get(self, user_id: int, vault: str, session: str) -> list[ModelMessage]:
+        return list(self._data.get((user_id, vault, session), []))
 
-    def set(self, vault: str, session: str, messages: list[ModelMessage]) -> None:
-        self._data[(vault, session)] = _trim(messages, get_settings().chat_history_messages)
-        self._data.move_to_end((vault, session))
+    def set(self, user_id: int, vault: str, session: str, messages: list[ModelMessage]) -> None:
+        key = (user_id, vault, session)
+        self._data[key] = _trim(messages, get_settings().chat_history_messages)
+        self._data.move_to_end(key)
         while len(self._data) > self.max_sessions:
             self._data.popitem(last=False)
 
-    def clear(self, vault: str, session: str) -> None:
-        self._data.pop((vault, session), None)
+    def clear(self, user_id: int, vault: str, session: str) -> None:
+        self._data.pop((user_id, vault, session), None)
 
 
 def _trim(messages: list[ModelMessage], max_messages: int) -> list[ModelMessage]:

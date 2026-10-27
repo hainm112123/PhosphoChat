@@ -42,6 +42,35 @@ On first start the backend creates an **empty** vault in `vaults/default/` from 
 and gives it its own git repo. `npm run build` puts the UI in `frontend/dist`, which the backend
 then serves itself at http://localhost:8000.
 
+## Users and roles
+
+Everyone has to sign in. There are two roles:
+
+| | user | admin |
+|---|---|---|
+| Chat with the wiki and graph | ✓ | ✓ |
+| Read every vault: Wiki, Sources, Log entries | ✓ | ✓ |
+| Capture, Save to wiki, Sync, Lint, Digest, Retry, job progress | | ✓ |
+| Create vaults | | ✓ |
+| Manage users (Users page: add, change role, reset password, disable, delete) | | ✓ |
+
+- **First admin:** set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env` and start the backend.
+  If no active admin exists, that account is created; if it exists, it is promoted and its
+  password reset. That also lets you recover from a lost admin password. After that, admins add
+  everyone else on the **Users** page. There is no public sign-up.
+- **Sessions:** an HttpOnly, `SameSite=Lax` cookie lasts `SESSION_DAYS`. Set `COOKIE_SECURE=true`
+  behind https.
+- **Storage:** users and sessions are in `DATA_DIR/phosphochat.db`, which is gitignored. Passwords
+  are hashed with scrypt, and only a hash of each session token is stored.
+- **Server enforcement:** the server checks every API call. The UI only hides what a role can't
+  use. Requests from other sites are refused, and five failed logins lock that username for five
+  minutes.
+- **Guards:** the last active admin can't be demoted, disabled or deleted, and admins can't disable
+  or delete themselves.
+- **Effects take hold at once:** disabling a user or resetting their password signs them out
+  everywhere.
+- **Chat:** history is per user, and only admins may pick a different model per chat request.
+
 ## Models
 
 `MODEL` in `.env` is a pydantic-ai model string. Each provider reads its own key, so
@@ -57,6 +86,17 @@ switching provider is a config change:
 
 Groq's free tier has tight tokens-per-minute limits. Every tool result is capped at
 `TOOL_OUTPUT_CHARS`, and a rate-limit error shows up as a readable message in the UI.
+
+**One model per role (optional).** Each role can use its own model; unset roles use `MODEL`.
+
+| Role | Setting | What it does | Suggested |
+|---|---|---|---|
+| Chat | `CHAT_MODEL` | Answers questions | Fast or cheap; answers can simply be asked again |
+| Wiki jobs | `JOB_MODEL` | Capture, sync, lint, digest | The strongest model; its output is saved in the wiki |
+| Fact-check | `VERIFY_MODEL` (falls back to `JOB_MODEL`) | Checks new pages against the source | A *different* model from the writer, so it doesn't repeat the writer's mistakes |
+
+On Groq, rate limits apply per model, so splitting roles also gives each one its own token
+budget. The sidebar shows the chat and job models; hover over them to see all three.
 
 ## Architecture
 
@@ -238,8 +278,11 @@ changes and wins over the process environment for the keys it defines.
 | Setting | Default | Purpose |
 |---|---|---|
 | `MODEL` | see `.env.example` | pydantic-ai model string (see Models above) |
+| `CHAT_MODEL`, `JOB_MODEL`, `VERIFY_MODEL` | empty | Per-role models; empty uses `MODEL` (`VERIFY_MODEL` uses `JOB_MODEL`) |
 | `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` | `bolt://localhost:7687`, `neo4j`, –, `neo4j` | Graph connection |
 | `VAULTS_DIR`, `DEFAULT_VAULT` | `vaults`, `default` | Where vaults live; the vault created on first start |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD` | –, – | Bootstrap admin, created at startup when no active admin exists |
+| `DATA_DIR`, `SESSION_DAYS`, `COOKIE_SECURE` | `data`, `14`, `false` | User database location; session length; https-only cookie |
 | `TOOL_OUTPUT_CHARS` | `8000` | Cap on any single tool result sent to the model |
 | `VERIFY_CAPTURES`, `VERIFY_SOURCE_CHARS` | `false`, `12000` | Fact-check after capture/sync; source text given to the checker |
 | `CHAT_REQUEST_LIMIT`, `JOB_REQUEST_LIMIT` | `15`, `40` | Max model calls per chat answer / per job |
@@ -257,10 +300,16 @@ cd backend && .venv/Scripts/python -m pytest -q
   tool-call correction, rollback, output caps and the fact-check/revision loop.
 - `test_api.py`: endpoints that start jobs, capture retry validation, new-vault layout.
 - `test_config.py`: `.env` edits are picked up without a restart and beat stale environment copies.
+- `test_auth.py`:
+  - login, logout, throttling and password changes;
+  - the last-admin and self guards;
+  - a role matrix: anonymous, user and admin against every route;
+  - per-user chat history and the cross-site check.
 
 ## Prototype limits
 
-- Single user, no auth. Bind to localhost.
+- Login sessions and users are in SQLite on one server. Serve over https (`COOKIE_SECURE=true`)
+  before exposing it beyond localhost.
 - Jobs and chat history live in memory and are lost on restart; the vault itself is on disk and in git.
 - `search_pages` is a plain substring search. Add SQLite FTS or embeddings once the wiki grows.
 - Not built yet: graph view, scheduled digest, model picker in the UI, and an MCP facade over `app/graph/signor.py`.

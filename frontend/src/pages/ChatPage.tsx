@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api, streamChat, type Job } from "../api";
 import { Markdown } from "../components/Markdown";
 import { JobProgress } from "../components/JobProgress";
+import { useAuth } from "../auth";
 import { useVault } from "../vault";
 
 type ToolCall = { id: string; name: string; args: unknown; result?: string; retry?: boolean };
@@ -44,6 +45,7 @@ function patchLast(vault: string, fn: (m: Msg) => Msg) {
 
 export function ChatPage() {
   const { vault, pages } = useVault();
+  const { isAdmin } = useAuth();
   const conv = useSyncExternalStore(subscribe, () => getConv(vault));
   const [input, setInput] = useState("");
   const busy = conv.messages.some((m) => m.pending);
@@ -143,7 +145,7 @@ export function ChatPage() {
                 {!m.pending && m.text && (
                   <div className="msg-actions">
                     {m.usage && <span className="muted small">{m.usage.requests} model calls · {m.usage.input_tokens + m.usage.output_tokens} tokens</span>}
-                    {!m.saveJob && <button className="btn btn-small btn-ghost" onClick={() => save(i)}>Save to wiki</button>}
+                    {isAdmin && !m.saveJob && <button className="btn btn-small btn-ghost" onClick={() => save(i)}>Save to wiki</button>}
                   </div>
                 )}
                 {m.saveError && <div className="error">Couldn't save to the wiki: {m.saveError}</div>}

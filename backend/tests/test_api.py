@@ -5,21 +5,15 @@ from __future__ import annotations
 import time
 
 import pytest
-from fastapi.testclient import TestClient
 from pydantic_ai.messages import ModelResponse
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.agents.jobs import job_agent
-from app.api import deps
-from app.vault.store import VaultRegistry
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setattr(deps, "_registry", VaultRegistry(tmp_path))
-    from app.main import app
-    with TestClient(app) as c:
-        yield c
+def client(make_client):
+    return make_client("admin")
 
 
 def _wait(client, job_id):
@@ -81,7 +75,8 @@ def test_duplicate_capture_is_rejected_without_writing(client):
 
 
 def test_capture_fact_check_toggle_is_passed_to_the_job(client):
-    assert "verify_captures" in client.get("/api/config").json()
+    cfg = client.get("/api/config").json()
+    assert "verify_captures" in cfg and set(cfg["models"]) == {"chat", "job", "verify"}
     with job_agent().override(model=_broken_model()):
         off = client.post("/api/vaults/default/capture", data={"text": "a note", "verify": "false"})
         on = client.post("/api/vaults/default/capture", data={"text": "other note", "verify": "true"})
@@ -99,5 +94,5 @@ def test_retry_unknown_job(client):
 
 def test_new_vault_has_no_agent_files(client, tmp_path):
     assert client.post("/api/vaults", json={"name": "fresh"}).status_code == 201
-    assert sorted(p.name for p in (tmp_path / "fresh").iterdir()) == [".git", "index.md", "log.md",
+    assert sorted(p.name for p in (tmp_path / "vaults" / "fresh").iterdir()) == [".git", "index.md", "log.md",
                                                                       "sources", "wiki"]

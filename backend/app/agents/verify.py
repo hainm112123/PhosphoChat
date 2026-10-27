@@ -77,7 +77,7 @@ async def verify_pages(vault: Vault, sources: list[str], pages: list[str],
     if not sources or not pages:
         return []
     result = await verifier_agent().run(
-        build_prompt(vault, sources, pages), model=get_model(model),
+        build_prompt(vault, sources, pages), model=get_model(model, "verify"),
         model_settings=model_settings(), usage_limits=UsageLimits(request_limit=6))
     texts = {p: _norm(vault.read_page(p)) for p in pages}
     issues = []

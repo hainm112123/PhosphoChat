@@ -23,6 +23,7 @@ from app import prompts
 from app.agents.runtime import JobFailed, explain_error, stream_run
 from app.agents.verify import Issue, verify_pages
 from app.config import get_settings
+from app.llm import model_name
 from app.tools.agent_tools import Deps, graph_toolset, vault_read_toolset, vault_write_toolset
 from app.vault.store import StagedSource, Vault, page_links
 
@@ -218,7 +219,7 @@ async def run_job(vault: Vault, kind: JobKind, params: dict, emit: Emit,
                 return {"report": ctx["report"], "pages_created": [], "pages_updated": [],
                         "warnings": [], "commit": vault.commit(f"{kind}: prepare")}
             model = params.get("model")
-            await emit({"type": "info", "message": f"Running {kind} with {model or get_settings().model}"})
+            await emit({"type": "info", "message": f"Running {kind} with {model_name(model, 'job')}"})
             report, messages = await _agent_turn(prompt, deps, model, emit)
             if kind in ("capture", "sync") and not deps.touched():
                 raise JobFailed("The model wrote no wiki pages, so nothing was saved."
@@ -240,7 +241,8 @@ async def _agent_turn(prompt: str, deps: JobContext, model: str | None, emit: Em
                       history: list | None = None) -> tuple[JobReport, list]:
     report, messages = None, []
     async for ev in stream_run(job_agent(), prompt, deps=deps, history=history,
-                               request_limit=get_settings().job_request_limit, model=model):
+                               request_limit=get_settings().job_request_limit, model=model,
+                               role="job"):
         if ev["type"] == "result":
             report, messages = ev["output"], ev["messages"]
             await emit({"type": "usage", **ev["usage"]})

@@ -9,12 +9,15 @@ or an OpenAI-compatible endpoint (Ollama, vLLM...) is configuration only:
     google-gla:gemini-2.5-flash     GOOGLE_API_KEY
     openai:qwen3:14b                OPENAI_API_KEY + OPENAI_BASE_URL=http://localhost:11434/v1
     oxion:<model-id>                OXION_API_KEY (+ optional OXION_BASE_URL)
+
+CHAT_MODEL, JOB_MODEL and VERIFY_MODEL optionally pick a different model per role.
 """
 
 from __future__ import annotations
 
 import os
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_ai import UserError
 from pydantic_ai.models import Model
@@ -27,8 +30,24 @@ from app.config import get_settings
 GROQ_MAX_RETRIES = 10
 
 
-def model_name(override: str | None = None) -> str:
-    return override or get_settings().model
+Role = Literal["chat", "job", "verify"]
+
+
+def model_name(override: str | None = None, role: Role = "chat") -> str:
+    """Resolve the model for a role: explicit override > role setting > fallback.
+
+    CHAT_MODEL and JOB_MODEL fall back to MODEL; VERIFY_MODEL falls back to the job model.
+    Jobs write the permanent wiki, so give JOB_MODEL your strongest model; on Groq, rate limits
+    are per model, so separate roles also get separate token budgets."""
+    if override:
+        return override
+    s = get_settings()
+    job = s.job_model or s.model
+    return {"chat": s.chat_model or s.model, "job": job, "verify": s.verify_model or job}[role]
+
+
+def role_models() -> dict[str, str]:
+    return {r: model_name(role=r) for r in ("chat", "job", "verify")}
 
 
 @lru_cache
@@ -51,9 +70,9 @@ def _oxion_model(model_id: str, api_key: str, base_url: str) -> Model:
     return OpenAIChatModel(model_id, provider=OpenAIProvider(base_url=base_url, api_key=api_key))
 
 
-def get_model(override: str | None = None) -> Model | str:
+def get_model(override: str | None = None, role: Role = "chat") -> Model | str:
     """The model to run with: a configured Model for providers that need one, else the string."""
-    name = model_name(override)
+    name = model_name(override, role)
     if name.startswith("groq:"):
         return _groq_model(name.removeprefix("groq:"))
     if name.startswith("oxion:"):

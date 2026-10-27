@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from app.api.deps import get_vault
+from app.auth.deps import current_user
 from app.vault.store import TABLE_EXTS, TEXT_EXTS, VaultError, split_frontmatter, _plain
 
-router = APIRouter(prefix="/api/vaults/{vault}")
+# Any logged-in user may read every vault.
+router = APIRouter(prefix="/api/vaults/{vault}", dependencies=[Depends(current_user)])
 
 
 @router.get("/pages")

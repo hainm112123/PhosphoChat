@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,10 +16,14 @@ from fastapi import FastAPI, HTTPException  # noqa: E402
 from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
-from app.api import chat, jobs, vaults, wiki  # noqa: E402
+from app.api import auth, chat, jobs, vaults, wiki  # noqa: E402
 from app.api.deps import registry  # noqa: E402
+from app.auth.deps import SameOriginMiddleware, auth_store  # noqa: E402
 from app.config import REPO_ROOT, get_settings  # noqa: E402
 from app.graph.signor import close_driver  # noqa: E402
+
+
+log = logging.getLogger("phosphochat")
 
 
 @asynccontextmanager
@@ -26,12 +31,19 @@ async def lifespan(_: FastAPI):
     reg = registry()
     reg.migrate_all()  # drop per-vault AGENTS.md/CLAUDE.md/skills left by older versions
     reg.ensure(get_settings().default_vault)  # empty vault from the template on first run
+    s = get_settings()
+    store = auth_store()
+    if store.ensure_admin(s.admin_username, s.admin_password):
+        log.warning("Created admin '%s' from ADMIN_USERNAME/ADMIN_PASSWORD.", s.admin_username)
+    elif not store.has_admin():
+        log.warning("No admin account yet: set ADMIN_USERNAME and ADMIN_PASSWORD in .env and restart.")
     yield
     close_driver()
 
 
 app = FastAPI(title="PhosphoChat", lifespan=lifespan)
-for r in (vaults.router, wiki.router, jobs.router, chat.router):
+app.add_middleware(SameOriginMiddleware)
+for r in (auth.router, vaults.router, wiki.router, jobs.router, chat.router):
     app.include_router(r)
 
 # Serve the built frontend (npm run build) from the same origin when it exists;

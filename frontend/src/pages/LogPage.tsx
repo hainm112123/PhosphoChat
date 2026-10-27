@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type Job, type LogEntry } from "../api";
 import { JobProgress } from "../components/JobProgress";
 import { Markdown } from "../components/Markdown";
+import { useAuth } from "../auth";
 import { useVault } from "../vault";
 
 const JOBS = [
@@ -12,6 +13,7 @@ const JOBS = [
 
 export function LogPage() {
   const { vault, pages, version } = useVault();
+  const { isAdmin } = useAuth();
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [current, setCurrent] = useState<Job | null>(null);
@@ -19,8 +21,8 @@ export function LogPage() {
 
   useEffect(() => {
     api.log(vault).then((r) => setEntries(r.entries)).catch(() => setEntries([]));
-    api.jobs(vault).then(setJobs).catch(() => setJobs([]));
-  }, [vault, version, current]);
+    if (isAdmin) api.jobs(vault).then(setJobs).catch(() => setJobs([]));
+  }, [vault, version, current, isAdmin]);
 
   async function start(kind: string) {
     setError(null);
@@ -40,14 +42,16 @@ export function LogPage() {
         <span className="muted">Every session that changed the vault, newest first.</span>
       </header>
 
-      <div className="job-buttons">
-        {JOBS.map((j) => (
-          <button key={j.kind} className="btn btn-ghost" title={j.help} onClick={() => start(j.kind)}>
-            {j.label}
-            <span className="muted small"> {j.help}</span>
-          </button>
-        ))}
-      </div>
+      {isAdmin && (
+        <div className="job-buttons">
+          {JOBS.map((j) => (
+            <button key={j.kind} className="btn btn-ghost" title={j.help} onClick={() => start(j.kind)}>
+              {j.label}
+              <span className="muted small"> {j.help}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {running && !current && <div className="muted small">A job is running on this vault; new jobs wait their turn.</div>}
       {error && <div className="error">{error}</div>}
       {current && <JobProgress key={current.id} job={current} />}

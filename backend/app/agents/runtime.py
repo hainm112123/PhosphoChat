@@ -18,7 +18,7 @@ from pydantic_ai.messages import (
     TextPartDelta,
 )
 
-from app.llm import get_model, model_settings
+from app.llm import Role, get_model, model_settings
 
 PREVIEW_CHARS = 1500
 
@@ -52,10 +52,10 @@ def explain_error(e: Exception) -> str:
 
 async def stream_run(agent: Agent, prompt: str, *, deps: Any, request_limit: int,
                      history: Sequence[ModelMessage] | None = None,
-                     model: str | None = None) -> AsyncIterator[dict]:
+                     model: str | None = None, role: Role = "chat") -> AsyncIterator[dict]:
     """Yield UI events; the last one is {"type": "result", "output", "messages", "usage"}."""
     async with agent.run_stream_events(
-        prompt, deps=deps, message_history=list(history or []), model=get_model(model),
+        prompt, deps=deps, message_history=list(history or []), model=get_model(model, role),
         model_settings=model_settings(), usage_limits=UsageLimits(request_limit=request_limit),
     ) as events:
         async for ev in events:

@@ -6,16 +6,18 @@ import json
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sse_starlette import EventSourceResponse
 
 from app.api.deps import get_vault
+from app.auth.deps import require_admin
 from app.jobs.runner import jobs
 from app.tools.web import FetchError, fetch_url
 from app.vault.store import DuplicateSource, StagedSource, VaultError, extract_text
 
-router = APIRouter(prefix="/api")
+# Everything here changes a vault or reports on management jobs: admins only.
+router = APIRouter(prefix="/api", dependencies=[Depends(require_admin)])
 
 MAX_UPLOAD = 20_000_000
 

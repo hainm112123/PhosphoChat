@@ -18,9 +18,13 @@ export function CapturePage() {
   const [recent, setRecent] = useState<Job[]>([]);
   // Starts at the server default (VERIFY_CAPTURES); a choice made here applies per capture.
   const [verify, setVerify] = useState(false);
+  const [verifyModel, setVerifyModel] = useState("");
 
   useEffect(() => {
-    api.config().then((c) => setVerify(c.verify_captures)).catch(() => {});
+    api.config().then((c) => {
+      setVerify(c.verify_captures);
+      setVerifyModel(c.models.verify);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -95,7 +99,8 @@ export function CapturePage() {
             <button type="button" className="help-icon" aria-label="What is the fact-check?"
               aria-describedby="fact-check-help">?</button>
             <span id="fact-check-help" role="tooltip" className="help-tip">
-              After the agent writes the wiki pages, a second model compares every claim with
+              After the agent writes the wiki pages, a second model
+              {verifyModel ? <> (<code>{verifyModel}</code>)</> : null} compares every claim with
               the source text. Claims the source doesn't support, such as added mechanisms,
               residues or numbers, go back to the agent once to be fixed or removed.
               <br /><br />

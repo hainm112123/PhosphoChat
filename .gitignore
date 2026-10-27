@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 node_modules/
 frontend/dist/
+data/
 
 # Vaults are their own git repos; only the folder itself is tracked.
 vaults/*

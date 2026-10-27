@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
     model: str = "groq:qwen/qwen3.8-27b"
+    # Optional per-role models; empty means "use MODEL" (verify falls back to the job model).
+    chat_model: str = ""
+    job_model: str = ""
+    verify_model: str = ""
 
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_username: str = "neo4j"
@@ -37,6 +41,13 @@ class Settings(BaseSettings):
 
     vaults_dir: Path = Path("vaults")
     default_vault: str = "default"
+
+    # Auth: the first admin is created from these on startup when no admin exists yet.
+    admin_username: str = ""
+    admin_password: str = ""
+    data_dir: Path = Path("data")      # holds phosphochat.db (users, sessions)
+    session_days: int = 14
+    cookie_secure: bool = False        # set true when served over https
 
     tool_output_chars: int = 8000
     verify_captures: bool = False       # fact-check capture/sync pages against their sources
@@ -49,6 +60,11 @@ class Settings(BaseSettings):
     def vaults_path(self) -> Path:
         p = self.vaults_dir
         return p if p.is_absolute() else REPO_ROOT / p
+
+    @property
+    def db_path(self) -> Path:
+        p = self.data_dir if self.data_dir.is_absolute() else REPO_ROOT / self.data_dir
+        return p / "phosphochat.db"
 
 
 _settings: Settings | None = None

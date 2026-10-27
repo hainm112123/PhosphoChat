@@ -41,7 +41,10 @@ except ImportError:
     pass
 
 # Sibling checkout of the original MCP project; pass --file to load from anywhere else.
-DEFAULT_FILE = Path(__file__).resolve().parents[3] / "mcp" / "data" / "PhosphoSIGNOR_all_Data.tsv"
+_REPO = Path(__file__).resolve().parents[2]
+_SEED = _REPO / "seed" / "PhosphoSIGNOR_all_Data.tsv"           # shipped in the repo and image
+_LEGACY = _REPO.parent / "mcp" / "data" / "PhosphoSIGNOR_all_Data.tsv"  # old sibling checkout
+DEFAULT_FILE = _SEED if _SEED.is_file() else _LEGACY
 
 SITE_RE = re.compile(r"^(?P<base>[^_]+)_ph(?P<rest>.+)$")
 RESIDUE_RE = re.compile(r"(Ser|Thr|Tyr|His)\s*(\d+)")
@@ -236,6 +239,24 @@ def run_batches(driver, db: str, query: str, rows: list, size: int, what: str):
     print(f"  {what}: {len(rows)}")
 
 
+def _wait_for(driver, seconds: float) -> None:
+    """Neo4j can report healthy a moment before Bolt accepts logins; retry for a while."""
+    import time
+    from neo4j.exceptions import AuthError, ServiceUnavailable
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            driver.verify_connectivity()
+            return
+        except AuthError:
+            sys.exit("Neo4j rejected the credentials: check NEO4J_PASSWORD.")
+        except (ServiceUnavailable, OSError):
+            if time.monotonic() > deadline:
+                raise
+            print("Waiting for Neo4j ...")
+            time.sleep(3)
+
+
 def load(args, entities, sites, enzyme_edges, regulates_edges, modifies_edges):
     try:
         from neo4j import GraphDatabase
@@ -243,8 +264,14 @@ def load(args, entities, sites, enzyme_edges, regulates_edges, modifies_edges):
         sys.exit("The neo4j driver is not installed: pip install -r requirements.txt")
 
     with GraphDatabase.driver(args.uri, auth=(args.user, args.password)) as driver:
-        driver.verify_connectivity()
+        _wait_for(driver, args.wait)
         db = args.database
+
+        if args.if_empty:
+            records, _, _ = driver.execute_query("MATCH (n) RETURN count(n) AS n", database_=db)
+            if records[0]["n"] > 0:
+                print(f"Graph already loaded ({records[0]['n']} nodes), skipping.")
+                return
 
         if args.wipe:
             print("Wiping existing graph ...")
@@ -299,7 +326,13 @@ def main():
     ap.add_argument("--batch-size", type=int, default=2000)
     ap.add_argument("--wipe", action="store_true", help="delete all nodes before loading")
     ap.add_argument("--dry-run", action="store_true", help="parse and print stats; no database")
+    ap.add_argument("--if-empty", action="store_true",
+                    help="do nothing if the graph already has nodes (for container start-up)")
+    ap.add_argument("--wait", type=float, default=90,
+                    help="seconds to keep retrying while Neo4j starts (default 90)")
     args = ap.parse_args()
+    if not args.password and os.getenv("NEO4J_PASSWORD_FILE"):  # Docker/Kubernetes secret file
+        args.password = Path(os.environ["NEO4J_PASSWORD_FILE"]).read_text(encoding="utf-8").strip()
 
     entities, sites, enzyme_edges, regulates_edges, modifies_edges, warnings = parse_file(args.file)
 

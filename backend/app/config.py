@@ -11,6 +11,7 @@ lives outside backend/. .env wins over the process environment for the keys it d
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -87,11 +88,31 @@ def _load_env_file() -> None:
         _env_keys.add(k)
 
 
+_SECRET_FILE_RE = re.compile(r"^[A-Z][A-Z0-9_]*_FILE$")
+
+
+def _load_secret_files() -> None:
+    """Docker/Kubernetes secrets: `<NAME>_FILE=/run/secrets/x` sets NAME from that file, unless
+    NAME is already set. Works for any setting (GROQ_API_KEY_FILE, ADMIN_PASSWORD_FILE, ...)
+    and keeps the secret itself out of the container's environment listing."""
+    for key, path in list(os.environ.items()):
+        if not _SECRET_FILE_RE.match(key) or not path:
+            continue
+        name = key.removesuffix("_FILE")
+        if os.environ.get(name):
+            continue
+        try:
+            os.environ[name] = Path(path).read_text(encoding="utf-8").strip()
+        except OSError as e:
+            raise RuntimeError(f"{key} points to {path}, which can't be read: {e}") from e
+
+
 def get_settings() -> Settings:
     global _settings, _env_mtime
     mtime = ENV_FILE.stat().st_mtime if ENV_FILE.is_file() else None
     if _settings is None or mtime != _env_mtime:
         _load_env_file()
+        _load_secret_files()
         _settings = Settings()
         _env_mtime = mtime
     return _settings

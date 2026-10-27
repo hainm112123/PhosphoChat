@@ -8,6 +8,25 @@ import time
 from app import config
 
 
+def test_secret_files(tmp_path, monkeypatch):
+    secret = tmp_path / "groq_key"
+    secret.write_text("gsk_from_file\n", encoding="utf-8")
+    monkeypatch.setenv("PHOSPHO_SECRET_FILE", str(secret))
+    monkeypatch.delenv("PHOSPHO_SECRET", raising=False)
+    config._load_secret_files()
+    assert os.environ["PHOSPHO_SECRET"] == "gsk_from_file"       # read and stripped
+
+    monkeypatch.setenv("PHOSPHO_SECRET", "explicit")
+    config._load_secret_files()
+    assert os.environ["PHOSPHO_SECRET"] == "explicit"            # NAME set: the file is ignored
+
+    monkeypatch.delenv("PHOSPHO_SECRET")
+    monkeypatch.setenv("PHOSPHO_SECRET_FILE", str(tmp_path / "missing"))
+    import pytest
+    with pytest.raises(RuntimeError, match="PHOSPHO_SECRET_FILE"):
+        config._load_secret_files()
+
+
 def test_env_changes_are_picked_up(tmp_path, monkeypatch):
     env = tmp_path / ".env"
     env.write_text("MODEL=groq:first\nPHOSPHO_TEST_KEY=1\n", encoding="utf-8")

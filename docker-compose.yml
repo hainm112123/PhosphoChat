@@ -1,18 +1,89 @@
-# Neo4j for the PhosphoSIGNOR graph. Load it afterwards with:
-#   backend/.venv/Scripts/python backend/scripts/load_signor.py --file <PhosphoSIGNOR_all_Data.tsv> --wipe
-# If another Neo4j already uses ports 7474/7687 (e.g. the old signor-neo4j-test container),
-# stop it first or just keep using it.
+# PhosphoChat: app + Neo4j + a one-shot graph loader.
+#
+#   cp .env.example .env      # fill in a model key, NEO4J_PASSWORD, ADMIN_USERNAME/ADMIN_PASSWORD
+#   docker compose up -d --build
+#   open http://localhost:8000
+#
+# Nothing secret is written here. Values come from .env (next to this file) or the shell
+# environment; secrets can also be mounted as files (see the commented `secrets:` blocks).
+# For local development without Docker, `docker compose up -d neo4j` still gives you a graph
+# (uncomment its ports to reach it from the host).
+
 services:
   neo4j:
     image: neo4j:5
-    container_name: phosphochat-neo4j
-    ports:
-      - "7474:7474"
-      - "7687:7687"
     environment:
-      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:-testpassword}"
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env (8+ characters)}"
     volumes:
       - neo4j-data:/data
+    # Not published by default, so it can't clash with another Neo4j on the host.
+    # ports:
+    #   - "7474:7474"   # browser
+    #   - "7687:7687"   # bolt
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_AUTH#neo4j/}\" 'RETURN 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  # Fills Neo4j from the bundled PhosphoSIGNOR TSV the first time, then exits.
+  # Later starts see a non-empty graph and skip.
+  graph-loader:
+    image: phosphochat:latest
+    build: .
+    command: ["python", "scripts/load_signor.py", "--file", "/app/seed/PhosphoSIGNOR_all_Data.tsv", "--if-empty"]
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}"
+      NEO4J_DATABASE: neo4j
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    image: phosphochat:latest
+    build: .
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    # Model keys, MODEL / CHAT_MODEL / JOB_MODEL / VERIFY_MODEL, ADMIN_USERNAME / ADMIN_PASSWORD,
+    # VERIFY_CAPTURES, COOKIE_SECURE ... come from .env.
+    env_file:
+      - path: .env
+        required: false
+    # These override whatever .env says, because inside the stack the paths and the Neo4j
+    # host are fixed.
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}"
+      VAULTS_DIR: /data/vaults
+      DATA_DIR: /data/db
+      # Secret files instead of plain variables (uncomment with the `secrets:` blocks below):
+      # GROQ_API_KEY_FILE: /run/secrets/groq_api_key
+      # ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+    # secrets:
+    #   - groq_api_key
+    #   - admin_password
+    volumes:
+      - vaults:/data/vaults
+      - appdb:/data/db
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      graph-loader:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+# secrets:
+#   groq_api_key:
+#     file: ./secrets/groq_api_key.txt
+#   admin_password:
+#     file: ./secrets/admin_password.txt
 
 volumes:
   neo4j-data:
+  vaults:
+  appdb:

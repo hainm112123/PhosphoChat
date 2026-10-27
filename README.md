@@ -14,17 +14,70 @@ The SIGNOR graph tools from the old `mcp/` server run inside the backend, not as
 process. The agents get only narrow tools: no shell, no code and no Cypher, so they can't wander
 off and write scripts.
 
-## Run it
+## Run with Docker
+
+The image holds the backend and the built UI. `docker compose` adds Neo4j and a one-time loader
+that fills the graph from the bundled `seed/PhosphoSIGNOR_all_Data.tsv`.
+
+```bash
+cp .env.example .env    # set at least: a model key, NEO4J_PASSWORD, ADMIN_USERNAME, ADMIN_PASSWORD
+docker compose up -d --build
+# open http://localhost:8000 and sign in as the admin
+```
+
+The first start takes about a minute, while Neo4j starts and the graph loads. After that, the
+loader sees a filled graph and skips. Vaults, users and the graph live in Docker volumes
+(`vaults`, `appdb`, `neo4j-data`) and survive `down`/`up` and rebuilds.
+
+**Configuring a deployment.** Nothing site-specific is baked into the image; it reads everything
+when the container starts.
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `NEO4J_PASSWORD` | yes | Password for the bundled Neo4j, 8+ characters; compose refuses to start without it |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD` | first start | First admin account; without them nobody can sign in |
+| `GROQ_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` / `OXION_API_KEY` / `OPENAI_API_KEY` | the one your models use | Model provider keys |
+| `MODEL`, `CHAT_MODEL`, `JOB_MODEL`, `VERIFY_MODEL` | no | Which models to use (see Models) |
+| `APP_PORT` | no (8000) | Host port for the web UI |
+| `COOKIE_SECURE` | no (false) | Set `true` once the site is behind https |
+| `VERIFY_CAPTURES`, `SESSION_DAYS`, `TOOL_OUTPUT_CHARS`, … | no | Behaviour; see Configuration below |
+
+Ways to supply these:
+- **An `.env` file** next to `docker-compose.yml`.
+- **Shell or platform environment variables.**
+- **Secret files:** any variable can be given as `<NAME>_FILE=/run/secrets/<file>`, which is read
+  when `<NAME>` itself is unset. This works with Docker/compose secrets and Kubernetes, and keeps
+  the value out of `docker inspect`. `docker-compose.yml` has a commented example; put the files
+  in `secrets/`, which is gitignored and never sent to the build.
+
+Inside the stack, `NEO4J_URI`, `VAULTS_DIR` and `DATA_DIR` are fixed by compose, so the
+localhost values in a development `.env` don't matter. On start the app logs its configuration
+(`docker compose logs app`): the models per role, whether each needed key is set (never the
+values), the Neo4j connection and whether an admin exists.
+
+| Task | Command |
+|---|---|
+| Logs | `docker compose logs -f app` |
+| Update | `git pull && docker compose up -d --build` |
+| Back up vaults / users | `docker run --rm -v phosphochat_vaults:/v -v "$PWD":/b alpine tar czf /b/vaults.tgz -C /v .` (same with `phosphochat_appdb`) |
+| Reload the graph | `docker compose run --rm graph-loader python scripts/load_signor.py --file /app/seed/PhosphoSIGNOR_all_Data.tsv --wipe` |
+| Use Ollama on the host | `MODEL=openai:<model>`, `OPENAI_BASE_URL=http://host.docker.internal:11434/v1` |
+
+Neo4j's ports aren't published, so the stack doesn't clash with another Neo4j on the host.
+Uncomment `ports:` under `neo4j` to open the Neo4j browser.
+
+## Run for development
 
 Prerequisites: Python 3.12+, Node 20+, Docker, and a Groq API key (https://console.groq.com).
 
 ```bash
 # 1. Config
-cp .env.example .env           # set GROQ_API_KEY (and NEO4J_PASSWORD if not testpassword)
+cp .env.example .env           # set GROQ_API_KEY, NEO4J_PASSWORD, ADMIN_USERNAME/ADMIN_PASSWORD
 
-# 2. Neo4j with PhosphoSIGNOR (skip if the old signor-neo4j-test container is running)
-docker compose up -d
-backend/.venv/Scripts/python backend/scripts/load_signor.py --file "../mcp/data/PhosphoSIGNOR_all_Data.tsv" --wipe
+# 2. Neo4j with PhosphoSIGNOR. Uncomment the neo4j `ports:` in docker-compose.yml first,
+#    or keep using an existing Neo4j on localhost:7687.
+docker compose up -d neo4j
+backend/.venv/Scripts/python backend/scripts/load_signor.py --if-empty   # loads seed/ by default
 
 # 3. Backend
 cd backend

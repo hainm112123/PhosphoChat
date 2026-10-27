@@ -28,7 +28,13 @@ def _preview(content: Any) -> str:
     return text if len(text) <= PREVIEW_CHARS else text[:PREVIEW_CHARS] + " ..."
 
 
+class JobFailed(Exception):
+    """A job step failed in a way the user should read as-is (the vault is rolled back)."""
+
+
 def explain_error(e: Exception) -> str:
+    if isinstance(e, JobFailed):
+        return str(e)
     if isinstance(e, ModelHTTPError):
         if e.status_code == 429:
             detail = e.body.get("error", {}).get("message", "") if isinstance(e.body, dict) else ""

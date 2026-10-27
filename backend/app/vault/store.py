@@ -203,6 +203,21 @@ def extract_text(filename: str, data: bytes) -> tuple[str, ContentType]:
 
 
 @dataclass
+class StagedSource:
+    """A source that has been fetched/extracted but not written yet. A capture job writes it
+    inside its transaction, so a failed capture leaves no trace in the vault."""
+    title: str
+    body: str
+    source_url: str
+    content_type: ContentType = "other"
+    original: tuple[str, bytes] | None = None
+
+    @property
+    def digest(self) -> str:
+        return hashlib.sha256(self.original[1] if self.original else self.body.encode("utf-8")).hexdigest()
+
+
+@dataclass
 class LogEntry:
     timestamp: str
     kind: str
@@ -405,6 +420,18 @@ class Vault:
                 urls.add(url.rstrip("/"))
         return hashes, urls
 
+    def check_new_source(self, source_url: str, digest: str) -> None:
+        """Raise DuplicateSource if this URL or content is already in sources/."""
+        hashes, urls = self._source_hashes_and_urls()
+        if source_url.startswith(("http://", "https://")) and source_url.rstrip("/") in urls:
+            raise DuplicateSource(f"A source with URL {source_url} already exists.")
+        if digest in hashes:
+            raise DuplicateSource("A source with identical content already exists.")
+
+    def save_staged(self, staged: StagedSource) -> str:
+        return self.save_source(title=staged.title, body=staged.body, source_url=staged.source_url,
+                                content_type=staged.content_type, original=staged.original)
+
     def save_source(self, *, title: str, body: str, source_url: str,
                     content_type: ContentType = "other",
                     original: tuple[str, bytes] | None = None) -> str:
@@ -413,11 +440,7 @@ class Vault:
         Returns the note's filename. Raises DuplicateSource for a URL or content seen before.
         """
         digest = hashlib.sha256((original[1] if original else body.encode("utf-8"))).hexdigest()
-        hashes, urls = self._source_hashes_and_urls()
-        if source_url.startswith(("http://", "https://")) and source_url.rstrip("/") in urls:
-            raise DuplicateSource(f"A source with URL {source_url} already exists.")
-        if digest in hashes:
-            raise DuplicateSource("A source with identical content already exists.")
+        self.check_new_source(source_url, digest)
 
         self.sources_dir.mkdir(parents=True, exist_ok=True)
         stem = f"{date.today().isoformat()}-{slugify(title)}"
@@ -629,13 +652,23 @@ class Vault:
             raise RuntimeError(f"git commit failed: {r.stderr.strip()}")
         return self._git("rev-parse", "--short", "HEAD").stdout.strip()
 
-    def rollback(self) -> None:
-        """Discard uncommitted changes to the wiki, index and log (a failed job's partial work).
-        Jobs commit pending external changes first, so only the job's own edits are lost."""
+    def head(self) -> str | None:
         if shutil.which("git") is None:
+            return None
+        r = self._git("rev-parse", "HEAD")
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    def rollback_to(self, base: str | None, created_files: list[Path] | None = None) -> None:
+        """Put the vault back exactly as it was at commit `base`: drop a failed job's new
+        sources, pages, index and log edits. Jobs commit pending external changes before they
+        record `base`, so nothing but the job's own work is lost. Without git, delete the
+        files the job is known to have created."""
+        if base and shutil.which("git") is not None:
+            self._git("reset", "-q", "--hard", base)
+            self._git("clean", "-fdq", "--", "sources", "wiki")
             return
-        self._git("checkout", "-q", "HEAD", "--", "wiki", "index.md", "log.md")
-        self._git("clean", "-fdq", "--", "wiki")
+        for p in created_files or []:
+            p.unlink(missing_ok=True)
 
     def history(self, limit: int = 20) -> list[dict]:
         r = self._git("log", f"-{limit}", "--pretty=format:%h%x09%aI%x09%s")

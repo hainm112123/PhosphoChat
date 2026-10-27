@@ -13,6 +13,7 @@ type Msg = {
   pending?: boolean;
   usage?: { requests: number; input_tokens: number; output_tokens: number };
   saveJob?: Job;
+  saveError?: string;
 };
 type Conversation = { session: string | null; messages: Msg[] };
 
@@ -95,7 +96,8 @@ export function ChatPage() {
       const { job } = await api.saveAnswer(vault, question, conv.messages[i].text);
       setConv(vault, (c) => ({ ...c, messages: c.messages.map((m, j) => (j === i ? { ...m, saveJob: job } : m)) }));
     } catch (e) {
-      alert(String(e));
+      const saveError = e instanceof Error ? e.message : String(e);
+      setConv(vault, (c) => ({ ...c, messages: c.messages.map((m, j) => (j === i ? { ...m, saveError } : m)) }));
     }
   }
 
@@ -144,6 +146,7 @@ export function ChatPage() {
                     {!m.saveJob && <button className="btn btn-small btn-ghost" onClick={() => save(i)}>Save to wiki</button>}
                   </div>
                 )}
+                {m.saveError && <div className="error">Couldn't save to the wiki: {m.saveError}</div>}
                 {m.saveJob && <JobProgress job={m.saveJob} />}
               </div>
             )}

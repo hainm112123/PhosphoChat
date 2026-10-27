@@ -16,6 +16,12 @@ export function CapturePage() {
   const [submitting, setSubmitting] = useState(false);
   const [current, setCurrent] = useState<Job | null>(null);
   const [recent, setRecent] = useState<Job[]>([]);
+  // Starts at the server default (VERIFY_CAPTURES); a choice made here applies per capture.
+  const [verify, setVerify] = useState(false);
+
+  useEffect(() => {
+    api.config().then((c) => setVerify(c.verify_captures)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     api.jobs(vault).then((js) => setRecent(js.filter((j) => j.kind === "capture"))).catch(() => {});
@@ -31,6 +37,7 @@ export function CapturePage() {
     if (mode === "url") form.set("url", url);
     if (mode === "file" && file) form.set("file", file);
     if (title.trim()) form.set("title", title.trim());
+    form.set("verify", String(verify));
     setSubmitting(true);
     setError(null);
     try {
@@ -48,7 +55,7 @@ export function CapturePage() {
     <div className="page">
       <header className="page-head">
         <h1>Capture</h1>
-        <span className="muted">Save one source unchanged, then let the agent fold it into the wiki.</span>
+        <span className="muted">The agent folds one source into the wiki. If any step fails, nothing is saved.</span>
       </header>
 
       <form className="card capture" onSubmit={submit}>
@@ -77,6 +84,27 @@ export function CapturePage() {
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (optional)" />
           <button className="btn" disabled={!ready || submitting}>{submitting ? "Saving..." : "Capture"}</button>
         </div>
+        <div className="option-row">
+          <label className="switch" htmlFor="capture-verify">
+            <input id="capture-verify" type="checkbox" role="switch" checked={verify}
+              onChange={(e) => setVerify(e.target.checked)} />
+            <span className="switch-track" aria-hidden="true"><span className="switch-thumb" /></span>
+            <span>Fact-check against the source</span>
+          </label>
+          <span className="help">
+            <button type="button" className="help-icon" aria-label="What is the fact-check?"
+              aria-describedby="fact-check-help">?</button>
+            <span id="fact-check-help" role="tooltip" className="help-tip">
+              After the agent writes the wiki pages, a second model compares every claim with
+              the source text. Claims the source doesn't support, such as added mechanisms,
+              residues or numbers, go back to the agent once to be fixed or removed.
+              <br /><br />
+              It roughly doubles the tokens a capture uses. If the check itself fails (for
+              example a rate limit), the whole capture fails and nothing is saved. Turn it off
+              to save tokens; every paragraph still has to cite a source.
+            </span>
+          </span>
+        </div>
         {error && <div className="error">{error}</div>}
       </form>
 
@@ -89,7 +117,7 @@ export function CapturePage() {
             <details key={j.id} className="card compact">
               <summary>
                 <span className={`badge badge-${j.status}`}>{j.status}</span>{" "}
-                {String(j.params.source ?? "")} <span className="muted small">{j.created_at}</span>
+                {String(j.params.title ?? j.params.source ?? "")} <span className="muted small">{j.created_at}</span>
               </summary>
               <JobProgress job={j} />
             </details>

@@ -44,6 +44,7 @@ export type Job = {
   finished_at: string | null;
   result: JobResult | null;
   error: string | null;
+  retryable?: boolean;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -64,7 +65,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const v = (vault: string) => `/api/vaults/${encodeURIComponent(vault)}`;
 
 export const api = {
-  config: () => request<{ model: string; default_vault: string }>("/api/config"),
+  config: () => request<{ model: string; default_vault: string; verify_captures: boolean }>("/api/config"),
   health: () => request<{ graph: { ok: boolean; error?: string } }>("/api/health"),
   vaults: () => request<{ name: string; pages: number; sources: number }[]>("/api/vaults"),
   createVault: (name: string) =>
@@ -83,7 +84,8 @@ export const api = {
   jobs: (vault: string) => request<Job[]>(`${v(vault)}/jobs`),
   job: (id: string) => request<Job & { events: JobEvent[] }>(`/api/jobs/${id}`),
   capture: (vault: string, form: FormData) =>
-    request<{ job: Job; source: string }>(`${v(vault)}/capture`, { method: "POST", body: form }),
+    request<{ job: Job }>(`${v(vault)}/capture`, { method: "POST", body: form }),
+  retryJob: (id: string) => request<Job>(`/api/jobs/${id}/retry`, { method: "POST" }),
   startJob: (vault: string, kind: string, options: Record<string, unknown> = {}) =>
     request<Job>(`${v(vault)}/jobs/${kind}`, {
       method: "POST",
@@ -91,7 +93,7 @@ export const api = {
       body: JSON.stringify(options),
     }),
   saveAnswer: (vault: string, question: string, answer: string) =>
-    request<{ job: Job; source: string }>(`${v(vault)}/chat/save`, {
+    request<{ job: Job }>(`${v(vault)}/chat/save`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question, answer }),

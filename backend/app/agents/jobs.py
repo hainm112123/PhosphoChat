@@ -13,17 +13,18 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
 from app import prompts
-from app.agents.runtime import explain_error, stream_run
+from app.agents.runtime import JobFailed, explain_error, stream_run
 from app.agents.verify import Issue, verify_pages
 from app.config import get_settings
 from app.tools.agent_tools import Deps, graph_toolset, vault_read_toolset, vault_write_toolset
-from app.vault.store import Vault, page_links
+from app.vault.store import StagedSource, Vault, page_links
 
 JobKind = Literal["capture", "sync", "lint", "digest"]
 Emit = Callable[[dict], Awaitable[None]]
@@ -190,30 +191,49 @@ def finish(vault: Vault, kind: JobKind, deps: JobContext, ctx: dict, report: Job
 
 # --------------------------------------------------------------------------- run
 
-async def run_job(vault: Vault, kind: JobKind, params: dict, emit: Emit) -> dict:
-    """Run one job under the vault's write lock. Rolls the wiki back if the agent fails."""
+async def run_job(vault: Vault, kind: JobKind, params: dict, emit: Emit,
+                  staged: StagedSource | None = None) -> dict:
+    """Run one job under the vault's write lock, as a transaction: either every step succeeds
+    and the job ends in one commit, or the vault is put back exactly as it was.
+
+    A capture gets its source as `staged` and writes it only here, inside the transaction, so
+    a capture that fails leaves no source behind."""
     async with vault.lock:
-        vault.commit(f"source: {params['source']}" if kind == "capture" else "external changes")
-        prompt, ctx = prepare(vault, kind, params)
-        if prompt is None:
-            await emit({"type": "info", "message": ctx["report"]})
-            return {"report": ctx["report"], "pages_created": [], "pages_updated": [],
-                    "warnings": [], "commit": vault.commit(f"{kind}: prepare")}
-        model = params.get("model")
-        await emit({"type": "info", "message": f"Running {kind} with {model or get_settings().model}"})
+        vault.commit("external changes")  # so a rollback can only undo this job's own work
+        base = vault.head()
+        created_files = []
         deps = JobContext(vault=vault, kind=kind)
         try:
+            if kind == "capture":
+                if staged is None:
+                    raise JobFailed("Nothing to capture: the source is no longer staged. Capture it again.")
+                params["source"] = vault.save_staged(staged)
+                created_files.append(vault.sources_dir / params["source"])
+                if staged.original:
+                    created_files.append(vault.sources_dir / (Path(params["source"]).stem
+                                                              + Path(staged.original[0]).suffix.lower()))
+            prompt, ctx = prepare(vault, kind, params)
+            if prompt is None:
+                await emit({"type": "info", "message": ctx["report"]})
+                return {"report": ctx["report"], "pages_created": [], "pages_updated": [],
+                        "warnings": [], "commit": vault.commit(f"{kind}: prepare")}
+            model = params.get("model")
+            await emit({"type": "info", "message": f"Running {kind} with {model or get_settings().model}"})
             report, messages = await _agent_turn(prompt, deps, model, emit)
+            if kind in ("capture", "sync") and not deps.touched():
+                raise JobFailed("The model wrote no wiki pages, so nothing was saved."
+                                + (f" Its report:\n\n{report.report}" if report.report else ""))
             fact_check = None
             verify = params.get("verify", get_settings().verify_captures)
-            if kind in ("capture", "sync") and verify and deps.touched():
+            if kind in ("capture", "sync") and verify:
                 fact_check, revised = await _fact_check(vault, ctx["sources"], deps, messages,
                                                         model, emit)
                 report = revised or report
+            return finish(vault, kind, deps, ctx, report, fact_check)
         except BaseException:
-            vault.rollback()
+            created_files += [vault.wiki_dir / f"{n}.md" for n in deps.created]
+            vault.rollback_to(base, created_files)
             raise
-        return finish(vault, kind, deps, ctx, report, fact_check)
 
 
 async def _agent_turn(prompt: str, deps: JobContext, model: str | None, emit: Emit,
@@ -242,11 +262,9 @@ async def _fact_check(vault: Vault, sources: list[str], deps: JobContext, messag
     await emit({"type": "info", "message": f"Fact-checking {len(pages)} page(s) against the source"})
     try:
         issues = await verify_pages(vault, sources, pages, model)
-    except Exception as e:  # noqa: BLE001 - a failed check must not throw away the pages
-        result = {"checked_pages": pages, "issues_found": 0, "issues": [],
-                  "error": f"Fact-check unavailable: {explain_error(e)}"}
-        await emit({"type": "fact_check", **result})
-        return result, None
+    except Exception as e:
+        # All-or-nothing: unverified pages are not kept. Turn VERIFY_CAPTURES off to skip the check.
+        raise JobFailed(f"The fact-check failed, so nothing was saved: {explain_error(e)}") from e
     result = {"checked_pages": pages, "issues_found": len(issues),
               "issues": [i.model_dump() for i in issues]}
     await emit({"type": "fact_check", **result})

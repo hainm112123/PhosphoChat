@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     default_vault: str = "default"
 
     tool_output_chars: int = 8000
-    verify_captures: bool = True        # fact-check capture/sync pages against their sources
+    verify_captures: bool = False       # fact-check capture/sync pages against their sources
     verify_source_chars: int = 12000    # source text sent to the fact-checker
     chat_history_messages: int = 20
     chat_request_limit: int = 15

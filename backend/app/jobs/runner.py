@@ -14,7 +14,7 @@ from typing import Any
 
 from app.agents.jobs import JobKind, run_job
 from app.agents.runtime import explain_error
-from app.vault.store import Vault
+from app.vault.store import StagedSource, Vault
 
 MAX_JOBS = 500
 
@@ -31,6 +31,9 @@ class Job:
     events: list[dict] = field(default_factory=list)
     result: dict | None = None
     error: str | None = None
+    # A capture's staged source (text and file bytes): in memory only, never sent to the UI.
+    # Kept after a failure so the job can be retried; dropped once it succeeds.
+    payload: StagedSource | None = field(default=None, repr=False)
     _changed: asyncio.Condition = field(default_factory=asyncio.Condition, repr=False)
 
     @property
@@ -60,7 +63,11 @@ class Job:
         return {"id": self.id, "vault": self.vault, "kind": self.kind, "params": self.params,
                 "status": self.status, "created_at": self.created_at,
                 "finished_at": self.finished_at, "result": self.result, "error": self.error,
-                "n_events": len(self.events)}
+                "n_events": len(self.events), "retryable": self.retryable}
+
+    @property
+    def retryable(self) -> bool:
+        return self.status == "failed" and (self.kind != "capture" or self.payload is not None)
 
 
 class JobManager:
@@ -68,8 +75,10 @@ class JobManager:
         self.jobs: dict[str, Job] = {}
         self._tasks: set[asyncio.Task] = set()
 
-    def submit(self, vault: Vault, kind: JobKind, params: dict | None = None) -> Job:
-        job = Job(id=uuid.uuid4().hex[:12], vault=vault.name, kind=kind, params=params or {})
+    def submit(self, vault: Vault, kind: JobKind, params: dict | None = None,
+               payload: StagedSource | None = None) -> Job:
+        job = Job(id=uuid.uuid4().hex[:12], vault=vault.name, kind=kind, params=params or {},
+                  payload=payload)
         self.jobs[job.id] = job
         while len(self.jobs) > MAX_JOBS:
             oldest = next(iter(self.jobs))
@@ -89,7 +98,8 @@ class JobManager:
                 if job.status == "queued":
                     job.status = "running"
                 await job.emit(ev)
-            job.result = await run_job(vault, job.kind, job.params, emit)
+            job.result = await run_job(vault, job.kind, job.params, emit, staged=job.payload)
+            job.payload = None  # saved in the vault now; free the memory
             final, status = {"type": "done", "result": job.result}, "succeeded"
         except Exception as e:  # noqa: BLE001 - surfaced to the user
             job.error = explain_error(e)
@@ -101,6 +111,16 @@ class JobManager:
             job.status = status
             job.finished_at = datetime.now().astimezone().isoformat(timespec="seconds")
             job._changed.notify_all()
+
+    def retry(self, job: Job, vault: Vault) -> Job:
+        """Run a failed job again with the same inputs (for a capture: the same staged source)."""
+        if not job.retryable:
+            raise ValueError("Only failed jobs can be retried, and a capture only while its "
+                             "source is still in memory (not after a server restart).")
+        params = {k: v for k, v in job.params.items() if k != "source"}  # re-saved by the new run
+        new = self.submit(vault, job.kind, {**params, "retry_of": job.id}, payload=job.payload)
+        job.payload = None  # the new job owns it now
+        return new
 
     def get(self, job_id: str) -> Job | None:
         return self.jobs.get(job_id)

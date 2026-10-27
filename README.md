@@ -173,10 +173,10 @@ sequenceDiagram
     participant F as Fact-checker
 
     UI->>API: POST /capture (text, URL or file)
-    API->>V: save_source (create-only, dedup by URL/hash)
-    API-->>UI: 202 {job, source}
-    Note over API,V: job starts and takes the vault lock
-    V->>V: commit "source: <file>"
+    API->>API: fetch / extract, reject duplicates (409)
+    API-->>UI: 202 {job} (source staged in memory, nothing written)
+    Note over API,V: job starts, takes the vault lock, records base commit
+    J->>V: save_source (create-only)
     J->>V: read_source, read_index, read_page ...
     J->>V: write_page (rejected if frontmatter, sources or citations are wrong)
     J->>V: upsert_index
@@ -185,10 +185,17 @@ sequenceDiagram
     opt claims found
         J->>V: one revision turn: write_page
     end
-    V->>V: index safety net, link check, log entry, commit "capture: <file>"
+    V->>V: index safety net, link check, log entry, one commit "capture: <file>"
     API-->>UI: SSE progress, fact_check, done
-    Note over V: on any failure, roll back wiki/, index.md and log.md
+    Note over V: on any failure, reset to the base commit and remove new files
 ```
+
+**A capture is all or nothing.** The source is written only inside the job, and every write job
+ends in exactly one commit. If any step fails, the vault goes back to the commit it had when the
+job started: the new source note, any original file, new pages, and index and log edits are all
+removed. That covers a provider error, the writer finishing without writing a page, or the
+fact-check itself failing. The staged source stays in memory, so **Retry**
+(`POST /api/jobs/{id}/retry`) can run the capture again until the server restarts.
 
 Sync works the same way over every source not yet named in `log.md` (up to 10 per run).
 For lint, code first runs the mechanical checks (broken links, orphans, index drift, schema,
@@ -215,10 +222,10 @@ three ways:
 1. The schema forbids background knowledge.
 2. `write_page` rejects any paragraph, list item or table row without a `[[source: …]]` or SIGNOR
    citation.
-3. After capture and sync, a verifier agent with no tools compares each claim with the source
-   text. The writer gets one turn to fix whatever it flags.
+3. Optionally, after capture and sync, a verifier agent with no tools compares each claim with
+   the source text. The writer gets one turn to fix whatever it flags.
 
-The fact-check costs roughly 1.5–2× the tokens of a capture. Turn it off with `VERIFY_CAPTURES=false`.
+The fact-check is off by default because it costs roughly 1.5–2× the tokens of a capture. Turn it on for one capture with the switch on the Capture screen, or for every capture and sync with `VERIFY_CAPTURES=true`.
 
 **Safety.** Captured text is untrusted. The prompts treat sources as data, URL fetches refuse
 private and loopback addresses, and agents have no tool that runs code. Agents can write only
@@ -234,7 +241,7 @@ changes and wins over the process environment for the keys it defines.
 | `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` | `bolt://localhost:7687`, `neo4j`, –, `neo4j` | Graph connection |
 | `VAULTS_DIR`, `DEFAULT_VAULT` | `vaults`, `default` | Where vaults live; the vault created on first start |
 | `TOOL_OUTPUT_CHARS` | `8000` | Cap on any single tool result sent to the model |
-| `VERIFY_CAPTURES`, `VERIFY_SOURCE_CHARS` | `true`, `12000` | Fact-check after capture/sync; source text given to the checker |
+| `VERIFY_CAPTURES`, `VERIFY_SOURCE_CHARS` | `false`, `12000` | Fact-check after capture/sync; source text given to the checker |
 | `CHAT_REQUEST_LIMIT`, `JOB_REQUEST_LIMIT` | `15`, `40` | Max model calls per chat answer / per job |
 | `CHAT_HISTORY_MESSAGES` | `20` | Chat history kept per session |
 

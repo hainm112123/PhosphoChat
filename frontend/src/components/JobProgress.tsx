@@ -16,6 +16,7 @@ export function JobProgress({ job, onFinished }: { job: Job; onFinished?: (job: 
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [status, setStatus] = useState(job.status);
   const [retrying, setRetrying] = useState<Job | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   useEffect(() => {
     setEvents([]);
@@ -45,14 +46,27 @@ export function JobProgress({ job, onFinished }: { job: Job; onFinished?: (job: 
   const infos = events.filter((e) => e.type === "info");
   const result = done?.result as JobResult | undefined;
   const factCheck = (result?.fact_check ?? events.find((e) => e.type === "fact_check")) as FactCheck | undefined;
-  const source = job.params?.source as string | undefined;
+  // A capture's source exists in the vault only once the capture succeeded.
+  const source = status === "succeeded" ? (job.params?.source as string | undefined) : undefined;
+  const label = (job.params?.title ?? job.params?.source_url) as string | undefined;
+
+  async function retry() {
+    setRetryError(null);
+    try {
+      setRetrying(await api.retryJob(job.id));
+    } catch (e) {
+      setRetryError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   return (
     <div className={`job job-${status}`}>
       <div className="job-head">
         <span className={`badge badge-${status}`}>{status}</span>
         <strong>{job.kind}</strong>
-        {source && <Link to={`/${vault}/sources/${encodeURIComponent(source)}`} className="muted">{source}</Link>}
+        {source
+          ? <Link to={`/${vault}/sources/${encodeURIComponent(source)}`} className="muted">{source}</Link>
+          : label && <span className="muted">{label}</span>}
         <span className="muted">{tools.length} tool call{tools.length === 1 ? "" : "s"}{retries ? `, ${retries} corrected` : ""}</span>
       </div>
       {infos.map((e, i) => <div key={i} className="muted small">{String(e.message)}</div>)}
@@ -97,15 +111,16 @@ export function JobProgress({ job, onFinished }: { job: Job; onFinished?: (job: 
       )}
       {error && (
         <div className="error">
-          {String(error.message)}
-          {job.kind === "capture" && source && (
-            <button className="btn btn-small" onClick={async () =>
-              setRetrying(await api.startJob(vault, "capture", { source }))}>
-              Retry
-            </button>
+          <div className="error-text">
+            {String(error.message)}
+            <div className="small">Nothing was saved to the vault.</div>
+          </div>
+          {job.retryable !== false && (
+            <button className="btn btn-small" onClick={retry}>Retry</button>
           )}
         </div>
       )}
+      {retryError && <div className="error">{retryError}</div>}
     </div>
   );
 }

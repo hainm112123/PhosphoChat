@@ -124,6 +124,56 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .badge-kind-lint, .badge-kind-sync { background: var(--warn-soft); color: var(--warn); }
 .error { background: var(--bad-soft); color: var(--bad); border-radius: var(--radius); padding: 8px 12px; margin-top: 8px; display: flex; gap: 12px; align-items: center; justify-content: space-between; }
 .warning { background: var(--warn-soft); color: var(--warn); border-radius: 6px; padding: 4px 10px; margin-top: 6px; }
+.error-text { white-space: pre-wrap; min-width: 0; }
+
+/* capture options: switch + help tooltip */
+.option-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13.5px; }
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch-track {
+  width: 32px; height: 18px; border-radius: 99px; background: var(--border);
+  position: relative; transition: background .15s; flex: none;
+}
+.switch-thumb {
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--panel); box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 30%, transparent);
+  transition: transform .15s;
+}
+.switch input:checked + .switch-track { background: var(--accent); }
+.switch input:checked + .switch-track .switch-thumb { transform: translateX(14px); }
+.switch input:focus-visible + .switch-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.help { position: relative; display: inline-flex; }
+.help-icon {
+  width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--muted); background: none;
+  color: var(--muted); font: 600 11px/1 var(--font); cursor: help; padding: 0;
+}
+.help-icon:hover, .help-icon:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.help-tip {
+  position: absolute; left: -8px; bottom: calc(100% + 8px);
+  width: min(320px, 75vw); z-index: 20; padding: 10px 12px; border-radius: 8px;
+  background: var(--text); color: var(--bg); font-size: 12.5px; line-height: 1.5;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 25%, transparent);
+  opacity: 0; visibility: hidden; transition: opacity .12s; pointer-events: none;
+}
+.help:hover .help-tip, .help:focus-within .help-tip { opacity: 1; visibility: visible; }
+@media (prefers-reduced-motion: reduce) { .switch-track, .switch-thumb, .help-tip { transition: none; } }
+
+/* modal */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
+  padding: 16px; background: color-mix(in srgb, var(--text) 35%, transparent);
+}
+.modal {
+  width: min(440px, 100%); background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 22px 22px 18px; display: grid; gap: 8px;
+  box-shadow: 0 18px 50px color-mix(in srgb, var(--text) 25%, transparent);
+}
+.modal h2 { margin: 0; }
+.modal p { margin: 0 0 6px; }
+.field-label { font-weight: 600; font-size: 13px; }
+.field-error { color: var(--bad); }
+.modal input[aria-invalid="true"] { border-color: var(--bad); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .empty { text-align: center; color: var(--muted); padding: 48px 16px; }
 .empty h2 { color: var(--text); }
 

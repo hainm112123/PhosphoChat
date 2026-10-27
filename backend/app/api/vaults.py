@@ -20,7 +20,7 @@ class NewVault(BaseModel):
 @router.get("/config")
 def config() -> dict:
     s = get_settings()
-    return {"model": s.model, "default_vault": s.default_vault}
+    return {"model": s.model, "default_vault": s.default_vault, "verify_captures": s.verify_captures}
 
 
 @router.get("/health")

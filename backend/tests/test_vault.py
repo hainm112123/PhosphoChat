@@ -178,12 +178,20 @@ def test_commit_and_rollback(vault):
     src = _source(vault)
     assert vault.commit("source") is not None
     assert vault.commit("nothing") is None
+    base = vault.head()
+    new_src = _source(vault, title="Later", body="Other body", url="https://example.org/later")
+    (vault.sources_dir / "raw.tsv").write_text("a\tb\n", encoding="utf-8")
     vault.write_page("protein-kinase-c", PAGE.format(src=src))
+    vault.upsert_index("protein-kinase-c", "PKC")
     vault.prepend_log("capture", ["x"])
-    vault.rollback()
+    vault.rollback_to(base)
     assert vault.page_names() == []
     assert vault.read_log_text().strip() == "# Log"
-    assert (vault.sources_dir / src).is_file()
+    assert vault.index_entries() == {}
+    assert (vault.sources_dir / src).is_file()          # committed before base: kept
+    assert not (vault.sources_dir / new_src).exists()   # created after base: removed
+    assert not (vault.sources_dir / "raw.tsv").exists()
+    assert vault.head() == base
 
 
 def test_search_and_backlinks(vault):

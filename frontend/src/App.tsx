@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { api } from "./api";
+import { NewVaultModal } from "./components/NewVaultModal";
 import { VaultProvider } from "./vault";
 import { ChatPage } from "./pages/ChatPage";
 import { CapturePage } from "./pages/CapturePage";
@@ -21,16 +22,13 @@ function Shell() {
     api.health().then((h) => setGraph(h.graph)).catch((e) => setGraph({ ok: false, error: String(e) }));
   }, []);
 
-  async function newVault() {
-    const name = prompt("New vault name (lowercase letters, digits, - and _):")?.trim();
-    if (!name) return;
-    try {
-      await api.createVault(name);
-      setVaults((vs) => [...vs, name].sort());
-      navigate(`/${name}/capture`);
-    } catch (e) {
-      alert(String(e instanceof Error ? e.message : e));
-    }
+  const [creating, setCreating] = useState(false);
+  const closeModal = useCallback(() => setCreating(false), []);
+
+  function vaultCreated(name: string) {
+    setCreating(false);
+    setVaults((vs) => [...vs, name].sort());
+    navigate(`/${name}/capture`);
   }
 
   const nav = [
@@ -50,7 +48,7 @@ function Shell() {
           </div>
           <label className="vault-select">
             <span className="muted small">Vault</span>
-            <select value={vault} onChange={(e) => (e.target.value === "__new" ? newVault() : navigate(`/${e.target.value}/chat`))}>
+            <select value={vault} onChange={(e) => (e.target.value === "__new" ? setCreating(true) : navigate(`/${e.target.value}/chat`))}>
               {(vaults.includes(vault) ? vaults : [vault, ...vaults]).map((v) => <option key={v} value={v}>{v}</option>)}
               <option value="__new">+ New vault...</option>
             </select>
@@ -70,6 +68,7 @@ function Shell() {
           <Outlet />
         </main>
       </div>
+      {creating && <NewVaultModal existing={vaults} onCreated={vaultCreated} onClose={closeModal} />}
     </VaultProvider>
   );
 }

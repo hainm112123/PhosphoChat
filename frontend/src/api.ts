@@ -47,6 +47,13 @@ export type Job = {
   retryable?: boolean;
 };
 
+export type ModelStatus = {
+  model: string;
+  provider: string;
+  status: "ok" | "missing" | "invalid" | "local" | "passthrough";
+  detail: string;
+};
+
 export type Role = "user" | "admin";
 export type User = { id: number; username: string; role: Role; disabled: boolean; created_at: string };
 
@@ -107,7 +114,10 @@ export const api = {
     default_vault: string;
     verify_captures: boolean;
   }>("/api/config"),
-  health: () => request<{ graph: { ok: boolean; error?: string } }>("/api/health"),
+  health: () => request<{
+    graph: { ok: boolean; error?: string };
+    models_status?: Record<string, ModelStatus>; // admins only
+  }>("/api/health"),
   vaults: () => request<{ name: string; pages: number; sources: number }[]>("/api/vaults"),
   createVault: (name: string) =>
     request<{ name: string }>("/api/vaults", {

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
-from pydantic_ai import Agent, AgentRunResultEvent, ModelHTTPError, UsageLimitExceeded, UsageLimits
+from pydantic_ai import Agent, AgentRunResultEvent, ModelHTTPError, UsageLimitExceeded, UsageLimits, UserError
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -18,7 +19,7 @@ from pydantic_ai.messages import (
     TextPartDelta,
 )
 
-from app.llm import Role, get_model, model_settings
+from app.llm import Role, connection_hint, get_model, model_settings
 
 PREVIEW_CHARS = 1500
 
@@ -44,9 +45,21 @@ def explain_error(e: Exception) -> str:
                     + (f"\nProvider says: {detail.split(' Need more tokens?')[0]}" if detail else ""))
         if e.status_code in (401, 403):
             return f"The model provider rejected the API key (HTTP {e.status_code}). Check .env."
+        if e.status_code == 404:
+            return ("The model server says this model doesn't exist (HTTP 404). Check the model "
+                    "id; for Ollama, pull it first (ollama pull <model>). "
+                    f"{str(e.body)[:200]}")
         return f"Model provider error (HTTP {e.status_code}): {str(e.body)[:300]}"
     if isinstance(e, UsageLimitExceeded):
         return f"Stopped: the agent used too many steps ({e})."
+    hint = connection_hint(e)
+    if hint:
+        return hint
+    if isinstance(e, UserError):
+        m = re.search(r"Set the `([A-Z0-9_]+)` environment variable", str(e))
+        if m:
+            return f"The model needs {m.group(1)}: add it to .env (or {m.group(1)}_FILE for a secret file)."
+        return str(e)
     return f"{type(e).__name__}: {e}"
 
 

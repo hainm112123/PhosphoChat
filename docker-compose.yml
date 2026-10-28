@@ -70,12 +70,38 @@ services:
     volumes:
       - vaults:/data/vaults
       - appdb:/data/db
+    # Lets the container reach model servers running on the host (Ollama desktop app,
+    # LM Studio...) as host.docker.internal, on Linux as well as Docker Desktop.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       neo4j:
         condition: service_healthy
       graph-loader:
         condition: service_completed_successfully
     restart: unless-stopped
+
+  # Optional: Ollama in a container, for machines without the Ollama desktop app.
+  #   docker compose --profile local-llm up -d
+  #   docker compose exec ollama ollama pull qwen3:14b
+  #   then in .env: OLLAMA_BASE_URL=http://ollama:11434/v1 and e.g. CHAT_MODEL=ollama:qwen3:14b
+  ollama:
+    image: ollama/ollama
+    profiles: ["local-llm"]
+    environment:
+      # The agents' instructions plus tool results need a long context; Ollama's default is small.
+      OLLAMA_CONTEXT_LENGTH: "32768"
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+    # NVIDIA GPU (needs the NVIDIA Container Toolkit):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
 
 # secrets:
 #   groq_api_key:
@@ -87,3 +113,4 @@ volumes:
   neo4j-data:
   vaults:
   appdb:
+  ollama-models:

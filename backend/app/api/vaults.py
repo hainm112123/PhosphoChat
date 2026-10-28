@@ -7,9 +7,10 @@ from pydantic import BaseModel
 
 from app.api.deps import registry
 from app.auth.deps import current_user, require_admin
+from app.auth.store import User
 from app.config import get_settings
 from app.graph import signor
-from app.llm import role_models
+from app.llm import check_role_models, role_models
 from app.vault.store import VaultError
 
 router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
@@ -28,13 +29,16 @@ def config() -> dict:
 
 
 @router.get("/health")
-async def health() -> dict:
+async def health(user: User = Depends(current_user)) -> dict:
     try:
         overview = await asyncio.to_thread(signor.graph_overview)
         graph = {"ok": True, "relationships": overview["relationships"]}
     except RuntimeError as e:
         graph = {"ok": False, "error": str(e)}
-    return {"ok": True, "graph": graph, "models": role_models()}
+    out = {"ok": True, "graph": graph, "models": role_models()}
+    if user.is_admin:  # configuration details (which keys are missing) are for admins
+        out["models_status"] = check_role_models()
+    return out
 
 
 @router.get("/vaults")

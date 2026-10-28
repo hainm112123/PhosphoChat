@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { api } from "./api";
+import { api, type ModelStatus } from "./api";
 import { AdminOnly, useAuth } from "./auth";
 import { ChangePasswordModal } from "./components/ChangePasswordModal";
 import { NewVaultModal } from "./components/NewVaultModal";
@@ -21,11 +21,15 @@ function Shell() {
   const [vaults, setVaults] = useState<string[]>([]);
   const [models, setModels] = useState<{ chat: string; job: string; verify: string } | null>(null);
   const [graph, setGraph] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [modelStatus, setModelStatus] = useState<Record<string, ModelStatus> | null>(null);
 
   useEffect(() => {
     api.vaults().then((vs) => setVaults(vs.map((v) => v.name))).catch(() => {});
     api.config().then((c) => setModels(c.models)).catch(() => {});
-    api.health().then((h) => setGraph(h.graph)).catch((e) => setGraph({ ok: false, error: String(e) }));
+    api.health().then((h) => {
+      setGraph(h.graph);
+      setModelStatus(h.models_status ?? null);
+    }).catch((e) => setGraph({ ok: false, error: String(e) }));
   }, []);
 
   const [creating, setCreating] = useState(false);
@@ -67,12 +71,19 @@ function Shell() {
           <div className="status">
             {models == null ? <div><span className="dot" /> model...</div>
               : (() => {
-                const tip = `Chat: ${models.chat}\nWiki jobs: ${models.job}\nFact-check: ${models.verify}`;
+                // Admins also get each role's configuration status (missing key, local server...).
+                const line = (role: "chat" | "job" | "verify", label: string) => {
+                  const st = modelStatus?.[role];
+                  return `${label}: ${models[role]}${st ? ` [${st.provider}] ${st.detail}` : ""}`;
+                };
+                const tip = [line("chat", "Chat"), line("job", "Wiki jobs"), line("verify", "Fact-check")].join("\n");
+                const dot = (...roles: ("chat" | "job" | "verify")[]) =>
+                  roles.some((r) => ["missing", "invalid"].includes(modelStatus?.[r]?.status ?? "")) ? "dot-bad" : "dot-ok";
                 return models.chat === models.job
-                  ? <div title={tip}><span className="dot dot-ok" /> {models.chat}</div>
+                  ? <div title={tip}><span className={`dot ${dot("chat", "job", "verify")}`} /> {models.chat}</div>
                   : <>
-                    <div title={tip}><span className="dot dot-ok" /> chat · {models.chat}</div>
-                    <div title={tip}><span className="dot dot-ok" /> jobs · {models.job}</div>
+                    <div title={tip}><span className={`dot ${dot("chat")}`} /> chat · {models.chat}</div>
+                    <div title={tip}><span className={`dot ${dot("job", "verify")}`} /> jobs · {models.job}</div>
                   </>;
               })()}
             <div title={graph?.error}>

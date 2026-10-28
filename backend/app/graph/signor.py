@@ -58,6 +58,10 @@ def _get_driver():
             s.neo4j_uri,
             auth=(s.neo4j_username, s.neo4j_password),
             notifications_min_severity="OFF",
+            # Fail fast when Neo4j is down: the agent gets "database unreachable" in seconds
+            # instead of waiting out the driver's default 30 s of retries per tool call.
+            max_transaction_retry_time=3,
+            connection_timeout=5,
         )
     return _driver
 

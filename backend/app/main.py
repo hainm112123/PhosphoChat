@@ -21,7 +21,7 @@ from app.api.deps import registry  # noqa: E402
 from app.auth.deps import SameOriginMiddleware, auth_store  # noqa: E402
 from app.config import REPO_ROOT, get_settings  # noqa: E402
 from app.graph.signor import close_driver  # noqa: E402
-from app.llm import role_models  # noqa: E402
+from app.llm import check_role_models  # noqa: E402
 
 
 log = logging.getLogger("phosphochat")
@@ -43,19 +43,13 @@ async def lifespan(_: FastAPI):
     close_driver()
 
 
-PROVIDER_KEYS = {"groq": "GROQ_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "google-gla": "GOOGLE_API_KEY",
-                 "openai": "OPENAI_API_KEY", "oxion": "OXION_API_KEY"}
-
-
 def _startup_report(has_admin: bool) -> None:
     """One block in the logs showing what this deployment is configured with. Never prints
     secret values, only whether they are set."""
     lines = []
-    for role, name in role_models().items():
-        provider = name.split(":", 1)[0]
-        env = PROVIDER_KEYS.get(provider)
-        key = ("key set" if os.environ.get(env) else f"MISSING {env}") if env else "no key needed"
-        lines.append(f"  {role:<6} {name}  ({key})")
+    for role, st in check_role_models().items():
+        flag = "PROBLEM: " if st["status"] in ("missing", "invalid") else ""
+        lines.append(f"  {role:<6} {st['model']}  [{st['provider']}] ({flag}{st['detail']})")
     s = get_settings()
     lines += [f"  neo4j  {s.neo4j_uri}  (password {'set' if s.neo4j_password else 'MISSING'})",
               f"  admin  {'present' if has_admin else 'NONE: set ADMIN_USERNAME/ADMIN_PASSWORD'}",

@@ -61,7 +61,8 @@ values), the Neo4j connection and whether an admin exists.
 | Update | `git pull && docker compose up -d --build` |
 | Back up vaults / users | `docker run --rm -v phosphochat_vaults:/v -v "$PWD":/b alpine tar czf /b/vaults.tgz -C /v .` (same with `phosphochat_appdb`) |
 | Reload the graph | `docker compose run --rm graph-loader python scripts/load_signor.py --file /app/seed/PhosphoSIGNOR_all_Data.tsv --wipe` |
-| Use Ollama on the host | `MODEL=openai:<model>`, `OPENAI_BASE_URL=http://host.docker.internal:11434/v1` |
+| Use the Ollama desktop app on the host | `MODEL=ollama:<model>`; nothing else (see Models → Local models) |
+| Run Ollama inside the stack | `docker compose --profile local-llm up -d`, then `OLLAMA_BASE_URL=http://ollama:11434/v1` |
 
 Neo4j's ports aren't published, so the stack doesn't clash with another Neo4j on the host.
 Uncomment `ports:` under `neo4j` to open the Neo4j browser.
@@ -126,16 +127,45 @@ Everyone has to sign in. There are two roles:
 
 ## Models
 
-`MODEL` in `.env` is a pydantic-ai model string. Each provider reads its own key, so
-switching provider is a config change:
+A model is written `<provider>:<model-id>` in `MODEL` (or per role, below). Switching provider is
+a config change, and roles can use different providers at the same time.
 
-| Provider | `MODEL` | Key |
+| Provider | Example | Needs |
 |---|---|---|
-| Groq (default) | `groq:openai/gpt-oss-120b`, `groq:openai/gpt-oss-20b`, `groq:qwen/qwen3.8-27b` | `GROQ_API_KEY` |
-| Claude | `anthropic:claude-sonnet-5-5` | `ANTHROPIC_API_KEY` (Console key, not a Pro login) |
-| Google AI Studio | `google-gla:gemini-2.5-flash` | `GOOGLE_API_KEY` |
-| OpenAI-compatible / Ollama | `openai:qwen3:14b` | `OPENAI_API_KEY=ollama`, `OPENAI_BASE_URL=http://localhost:11434/v1` |
-| Oxion AI | `oxion:<model-id>` (ids from `GET https://www.oxionai.com/v1/models`) | `OXION_API_KEY` (starts with `cc_`); optional `OXION_BASE_URL` |
+| Groq | `groq:openai/gpt-oss-120b` | `GROQ_API_KEY` |
+| Claude | `anthropic:claude-sonnet-5-5` (alias `claude:`) | `ANTHROPIC_API_KEY` (Console key, not a Pro login) |
+| Gemini, Google AI Studio | `google:gemini-2.5-flash` (aliases `gemini:`, `google-gla:`) | `GOOGLE_API_KEY` |
+| Gemini, Vertex AI | `google-cloud:gemini-2.5-flash` | `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, Google credentials |
+| OpenAI | `openai:gpt-5.2` (Responses API), `openai-chat:gpt-5.2` (Chat Completions) | `OPENAI_API_KEY`; `OPENAI_BASE_URL` only for an OpenAI proxy |
+| OpenRouter | `openrouter:anthropic/claude-sonnet-5-5` | `OPENROUTER_API_KEY` |
+| **Ollama** (local) | `ollama:qwen3:14b` | Nothing: defaults to `http://localhost:11434/v1`; `OLLAMA_BASE_URL` to change |
+| **LM Studio** (local) | `lmstudio:<model-id>` | Nothing: defaults to `http://localhost:1234/v1`; `LMSTUDIO_BASE_URL` to change |
+| vLLM / llama.cpp server | `vllm:<model-id>` | `VLLM_BASE_URL` (default `http://localhost:8000/v1`) |
+| Any OpenAI-compatible server (Jan, LocalAI, a company gateway…) | `compat:<name>:<model-id>`, e.g. `compat:local:llama3.1:8b` | `COMPAT_<NAME>_BASE_URL`, optional `COMPAT_<NAME>_API_KEY`. Define as many names as you like. |
+| Oxion AI | `oxion:<model-id>` | `OXION_API_KEY` (starts with `cc_`) |
+| Other providers pydantic-ai knows (`mistral:`, `deepseek:`, …) | as pydantic-ai | Their usual key variable |
+
+Every key can also come from a `<NAME>_FILE` secret file. At startup the log shows each role's
+provider and whether it's configured. Admins see the same in the sidebar: the dot turns red when
+a key is missing, and hovering shows the reason.
+
+**Local models.** The agents call tools and read long instructions, so small models struggle:
+
+- **Model choice:** use Qwen3 14B or larger, or Llama 3.1 8B or larger. Models of 4B and below
+  tend to skip tools or write poor pages.
+- **Context:** give Ollama a long context with `OLLAMA_CONTEXT_LENGTH=32768`. The default is too
+  short for the instructions plus tool results.
+
+Where Ollama runs decides the setup:
+
+| PhosphoChat runs | Ollama runs | Setup |
+|---|---|---|
+| On your machine (`uvicorn`) | Ollama desktop app | Nothing; `localhost:11434` is the default |
+| In Docker | Ollama desktop app on the host | Nothing; inside Docker the default becomes `host.docker.internal:11434`. If chat says it can't reach Ollama, set the environment variable `OLLAMA_HOST=0.0.0.0` for the Ollama app and restart it. On Windows: System Properties → Environment Variables; on macOS: `launchctl setenv OLLAMA_HOST 0.0.0.0`. |
+| In Docker | Bundled container | `docker compose --profile local-llm up -d`, then `docker compose exec ollama ollama pull qwen3:14b`, and set `OLLAMA_BASE_URL=http://ollama:11434/v1` |
+
+LM Studio works the same way on port 1234. Turn on its local server and set
+`LMSTUDIO_BASE_URL` if you changed the port.
 
 Groq's free tier has tight tokens-per-minute limits. Every tool result is capped at
 `TOOL_OUTPUT_CHARS`, and a rate-limit error shows up as a readable message in the UI.

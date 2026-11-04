@@ -99,7 +99,7 @@ export function GraphPage() {
           </label>
         </fieldset>
 
-        <fieldset>
+        {/* <fieldset>
           <legend>Databases</legend>
           {ALL_SOURCES.map((s) => (
             <label key={s} className="check">
@@ -117,7 +117,7 @@ export function GraphPage() {
           <input id="min-score" type="range" min={0} max={1} step={0.1} value={minScore}
             onChange={(e) => setMinScore(Number(e.target.value))} />
           {minScore > 0 && <div className="muted small">Hides links only KiNet databases report (they have no score).</div>}
-        </fieldset>
+        </fieldset> */}
 
         <fieldset>
           <legend>Kinase groups</legend>

@@ -127,8 +127,24 @@ Everyone has to sign in. There are two roles:
 
 ## Models
 
-A model is written `<provider>:<model-id>` in `MODEL` (or per role, below). Switching provider is
-a config change, and roles can use different providers at the same time.
+A model is written `<provider>:<model-id>`. Roles (chat, wiki jobs, fact-check) can use different
+providers at the same time.
+
+**Choosing models in the app.** Admins open **Models** in the sidebar.
+- **Provider list:** every provider with a key in `.env`, and every local server running on this
+  machine (Ollama, LM Studio), lists its chat models there. Speech, embedding, image and guard
+  models are hidden.
+- **Per role:** pick a model for each role, **Test** it with a one-line request, and **Save**. A
+  choice made there applies to everyone and overrides `.env`; **Reset to .env** undoes it.
+- **Not listed:** providers that can't be listed (Vertex AI, Mistral, …) can be entered as a
+  custom id.
+
+Order of precedence, for each role:
+1. the choice saved in the app;
+2. `CHAT_MODEL` / `JOB_MODEL` / `VERIFY_MODEL` in `.env`;
+3. `MODEL`. The fact-check model falls back to the job model first.
+
+The keys themselves stay in `.env` (or `<NAME>_FILE` secret files) and are never shown in the app.
 
 | Provider | Example | Needs |
 |---|---|---|

@@ -90,6 +90,30 @@ const json = (method: string, body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
+export type ModelRole = "chat" | "job" | "verify";
+export type CatalogProvider = {
+  prefix: string;
+  label: string;
+  status: "ok" | "error" | "not_configured";
+  models: { id: string; name: string }[];
+  error?: string;
+  needs?: string;
+};
+export type RoleSetting = { model: string; source: string; help: string; status: ModelStatus };
+
+/** Fired after an admin changes the models, so the sidebar can refresh. */
+export const MODELS_CHANGED_EVENT = "phosphochat:models-changed";
+
+export const modelsApi = {
+  catalog: (refresh = false) =>
+    request<{ providers: CatalogProvider[]; fetched_at: number }>(`/api/models/catalog${refresh ? "?refresh=1" : ""}`),
+  settings: () => request<{ roles: Record<ModelRole, RoleSetting> }>("/api/models/settings"),
+  save: (changes: Partial<Record<ModelRole, string>>) =>
+    request<{ roles: Record<ModelRole, RoleSetting> }>("/api/models/settings", json("PUT", changes)),
+  test: (model: string) =>
+    request<{ ok: boolean; reply?: string; error?: string; seconds: number }>("/api/models/test", json("POST", { model })),
+};
+
 export const authApi = {
   status: () => request<{ needs_admin: boolean }>("/api/auth/status"),
   me: () => request<User>("/api/auth/me"),

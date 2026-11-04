@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { api, type ModelStatus } from "./api";
+import { api, MODELS_CHANGED_EVENT, type ModelStatus } from "./api";
 import { AdminOnly, useAuth } from "./auth";
 import { ChangePasswordModal } from "./components/ChangePasswordModal";
 import { NewVaultModal } from "./components/NewVaultModal";
@@ -11,6 +11,7 @@ import { WikiPage } from "./pages/WikiPage";
 import { SourcesPage } from "./pages/SourcesPage";
 import { LogPage } from "./pages/LogPage";
 import { UsersPage } from "./pages/UsersPage";
+import { ModelsPage } from "./pages/ModelsPage";
 
 function Shell() {
   const { vault = "default" } = useParams();
@@ -25,11 +26,17 @@ function Shell() {
 
   useEffect(() => {
     api.vaults().then((vs) => setVaults(vs.map((v) => v.name))).catch(() => {});
-    api.config().then((c) => setModels(c.models)).catch(() => {});
-    api.health().then((h) => {
-      setGraph(h.graph);
-      setModelStatus(h.models_status ?? null);
-    }).catch((e) => setGraph({ ok: false, error: String(e) }));
+    // Models can change on the admin Models page: reload them when it says so.
+    const loadModels = () => {
+      api.config().then((c) => setModels(c.models)).catch(() => {});
+      api.health().then((h) => {
+        setGraph(h.graph);
+        setModelStatus(h.models_status ?? null);
+      }).catch((e) => setGraph({ ok: false, error: String(e) }));
+    };
+    loadModels();
+    window.addEventListener(MODELS_CHANGED_EVENT, loadModels);
+    return () => window.removeEventListener(MODELS_CHANGED_EVENT, loadModels);
   }, []);
 
   const [creating, setCreating] = useState(false);
@@ -49,6 +56,7 @@ function Shell() {
     ["sources", "Sources", false],
     ["log", "Log", false],
     ["users", "Users", true],
+    ["models", "Models", true],
   ].filter(([, , adminOnly]) => isAdmin || !adminOnly) as [string, string, boolean][];
 
   return (
@@ -126,6 +134,7 @@ export function App() {
         <Route path="sources/:name" element={<SourcesPage />} />
         <Route path="log" element={<LogPage />} />
         <Route path="users" element={<AdminOnly what="manage users"><UsersPage /></AdminOnly>} />
+        <Route path="models" element={<AdminOnly what="choose models"><ModelsPage /></AdminOnly>} />
       </Route>
     </Routes>
   );

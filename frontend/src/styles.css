@@ -187,6 +187,24 @@ table.users tr.is-disabled td { color: var(--muted); }
 .btn-danger-solid { background: var(--bad); border-color: var(--bad); color: #fff; }
 .modal-form { display: grid; gap: 8px; }
 
+/* models */
+.models-page { max-width: 1040px; }
+.role-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.role-card { display: grid; gap: 8px; align-content: start; margin: 0; min-width: 0; }
+.role-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.role-head h2 { margin: 0; }
+.role-card p { margin: 0; }
+.role-card .current { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.role-card .current code { overflow-wrap: anywhere; }
+.role-card select { width: 100%; }
+.role-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.ok-note { color: var(--ok); }
+.providers-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.providers-head h2 { margin: 0; }
+.providers-head .btn { margin-left: auto; }
+.provider-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.provider-list li { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 14px; }
+
 /* modal */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;

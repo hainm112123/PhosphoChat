@@ -82,21 +82,53 @@ OXION_DEFAULT_BASE_URL = PROVIDERS["oxion"].default_url
 
 # --------------------------------------------------------------------------- roles
 
-def model_name(override: str | None = None, role: Role = "chat") -> str:
-    """Resolve the model for a role: explicit override > role setting > fallback.
+ROLES: tuple[Role, ...] = ("chat", "job", "verify")
 
-    CHAT_MODEL and JOB_MODEL fall back to MODEL; VERIFY_MODEL falls back to the job model.
-    Jobs write the permanent wiki, so give JOB_MODEL your strongest model; on Groq, rate limits
+
+def saved_models() -> dict[str, str]:
+    """Models an admin chose in the web app (Models page), by role. They beat .env."""
+    from app.auth.deps import auth_store  # lazy: auth -> config, avoid an import cycle
+    try:
+        rows = auth_store().get_settings("model.")
+    except Exception:  # noqa: BLE001 - no database yet (e.g. a script): fall back to .env
+        return {}
+    return {k.removeprefix("model."): v for k, v in rows.items() if v}
+
+
+def _resolve(role: Role, saved: dict[str, str]) -> tuple[str, str]:
+    """(model, source) for a role. Order: saved in app > role variable in .env > fallback.
+    CHAT_MODEL/JOB_MODEL fall back to MODEL; the verifier falls back to the job model."""
+    s = get_settings()
+    env = {"chat": s.chat_model, "job": s.job_model, "verify": s.verify_model}
+    if saved.get(role):
+        return saved[role], "app"
+    if env[role]:
+        return env[role], "env"
+    if role == "verify":
+        job, src = _resolve("job", saved)
+        return job, f"{src} (job model)"
+    return s.model, "env (MODEL)"
+
+
+def model_name(override: str | None = None, role: Role = "chat") -> str:
+    """Resolve the model for a role: explicit override > choice saved in the app > .env.
+
+    Jobs write the permanent wiki, so give them your strongest model; on Groq, rate limits
     are per model, so separate roles also get separate token budgets."""
     if override:
         return override
-    s = get_settings()
-    job = s.job_model or s.model
-    return {"chat": s.chat_model or s.model, "job": job, "verify": s.verify_model or job}[role]
+    return _resolve(role, saved_models())[0]
 
 
 def role_models() -> dict[str, str]:
-    return {r: model_name(role=r) for r in ("chat", "job", "verify")}
+    saved = saved_models()
+    return {r: _resolve(r, saved)[0] for r in ROLES}
+
+
+def role_sources() -> dict[str, str]:
+    """Where each role's model comes from: 'app', 'env', 'env (MODEL)', ... (for the UI)."""
+    saved = saved_models()
+    return {r: _resolve(r, saved)[1] for r in ROLES}
 
 
 # --------------------------------------------------------------------------- resolution

@@ -37,6 +37,12 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by INTEGER
+);
 """
 
 
@@ -247,6 +253,21 @@ class AuthStore:
 
     def end_sessions(self, user_id: int) -> None:
         self._q("DELETE FROM sessions WHERE user_id = ?", user_id)
+
+    # ---- app settings (admin choices made in the web app, e.g. model per role)
+
+    def get_settings(self, prefix: str = "") -> dict[str, str]:
+        rows = self._q("SELECT key, value FROM app_settings WHERE key LIKE ?", f"{prefix}%")
+        return {r["key"]: r["value"] for r in rows}
+
+    def set_setting(self, key: str, value: str, user_id: int | None = None) -> None:
+        self._q("""INSERT INTO app_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)
+                   ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                       updated_at = excluded.updated_at, updated_by = excluded.updated_by""",
+                key, value, _now().isoformat(timespec="seconds"), user_id)
+
+    def delete_setting(self, key: str) -> None:
+        self._q("DELETE FROM app_settings WHERE key = ?", key)
 
 
 # --------------------------------------------------------------------------- login throttle

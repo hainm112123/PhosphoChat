@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import io
 import os
 import re
@@ -583,6 +584,43 @@ class Vault:
         _atomic_write(self.root / "log.md", new.rstrip() + "\n")
         return entry
 
+    # ---- relation claims (kinase -> substrate statements found in sources)
+
+    @property
+    def relations_path(self) -> Path:
+        return self.root / "relations.jsonl"
+
+    def read_relations(self) -> list[dict]:
+        if not self.relations_path.is_file():
+            return []
+        out = []
+        for line in self.relations_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    out.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue  # a hand-edited broken line shouldn't hide the rest
+        return out
+
+    def add_relation(self, claim: dict) -> bool:
+        """Append a claim; returns False when a claim with the same id already exists."""
+        if any(c.get("id") == claim["id"] for c in self.read_relations()):
+            return False
+        with self.relations_path.open("a", encoding="utf-8", newline="\n") as fh:
+            fh.write(json.dumps(claim, ensure_ascii=False, separators=(",", ":")) + "\n")
+        return True
+
+    def update_relation(self, claim_id: str, **changes) -> dict:
+        claims = self.read_relations()
+        hit = next((c for c in claims if c.get("id") == claim_id), None)
+        if hit is None:
+            raise VaultError(f"No claim '{claim_id}'.")
+        hit.update(changes)
+        _atomic_write(self.relations_path,
+                      "".join(json.dumps(c, ensure_ascii=False, separators=(",", ":")) + "\n" for c in claims))
+        return hit
+
     # ---- lint (mechanical part)
 
     def lint_mechanical(self) -> dict:
@@ -667,7 +705,7 @@ class Vault:
         files the job is known to have created."""
         if base and shutil.which("git") is not None:
             self._git("reset", "-q", "--hard", base)
-            self._git("clean", "-fdq", "--", "sources", "wiki")
+            self._git("clean", "-fdq", "--", "sources", "wiki", "relations.jsonl")
             return
         for p in created_files or []:
             p.unlink(missing_ok=True)

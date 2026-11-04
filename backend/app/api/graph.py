@@ -8,7 +8,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.api.deps import get_vault
 from app.auth.deps import current_user
+from app.knowledge.claims import list_claims
 from app.graph import network as net
 from app.graph import signor
 
@@ -34,11 +36,16 @@ async def search(q: str = Query(min_length=1), limit: int = 10) -> list[dict]:
 @router.get("/network")
 async def network(seeds: str, depth: int = 1, direction: net.Direction = "both",
                   sources: str | None = None, min_score: float = 0, min_sources: int = 1,
-                  mechanism: str | None = None, limit: int = 300) -> dict:
+                  mechanism: str | None = None, limit: int = 300, vault: str | None = None,
+                  claims: bool = True) -> dict:
+    """`vault` + `claims`: also draw that vault's claims from its sources (purple in the UI)."""
     seed_list = [s.strip() for s in seeds.split(",") if s.strip()]
     src = [s.strip() for s in sources.split(",") if s.strip()] if sources else None
+    vault_claims = None
+    if vault and claims:
+        vault_claims = await asyncio.to_thread(list_claims, get_vault(vault))
     return await asyncio.to_thread(_call, net.network, seed_list, max(1, min(depth, 2)), direction,
-                                   src, min_score, min_sources, mechanism or None, limit)
+                                   src, min_score, min_sources, mechanism or None, limit, vault_claims)
 
 
 @router.get("/interaction")

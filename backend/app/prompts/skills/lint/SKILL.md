@@ -9,7 +9,8 @@ Report first, then fix only what's mechanical. Anything that changes meaning goe
 
 PhosphoChat has already run the mechanical checks and put the results in the task:
 broken links, orphan pages, index drift (missing or dead entries), schema violations
-(missing frontmatter) and uncited blocks (paragraphs, list items or table rows without a
+(missing frontmatter), relation claims from the sources that are new to the databases
+(`claims_new`) or conflict with them (`claims_conflicting`), and uncited blocks (paragraphs, list items or table rows without a
 `[[source: ...]]` or SIGNOR citation). You do the checks that need reading.
 
 ## Checks you run
@@ -26,6 +27,10 @@ broken links, orphan pages, index drift (missing or dead entries), schema violat
 - `upsert_index` for pages missing from the index (use the page summary as the description).
 - Fill in missing frontmatter fields where the value is obvious from the page (`write_page`).
 - Fix broken links when the intended target is unambiguous (a typo or renamed page).
+
+## Claims to review
+List `claims_new` and `claims_conflicting` in the report under "Needs decision" with the
+source and page: an admin can mark each reviewed or rejected in the Graph explorer.
 
 ## Needs user approval (don't do these)
 Merging or deleting pages, resolving contradictions, rewriting content or removing claims

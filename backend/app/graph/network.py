@@ -51,7 +51,27 @@ def _nodes(ids: list[str], seeds: set[str]) -> list[dict]:
     return out
 
 
-def _finish(edge_rows: list[dict], seeds: set[str], truncated: bool) -> dict:
+def _claim_edges(claims: list[dict], seeds: set[str], direction: str) -> list[dict]:
+    """Claims from a vault's sources (already given a status) that touch the seed proteins."""
+    out = []
+    for c in claims:
+        touches = ((direction in ("regulators", "both") and c["target_id"] in seeds)
+                   or (direction in ("targets", "both") and c["enzyme_id"] in seeds))
+        if not touches or c.get("review") == "rejected":
+            continue
+        out.append({"id": f"claim|{c['id']}", "source": c["enzyme_id"], "target": c["target_id"],
+                    "mechanism": c["mechanism"], "sites": [c["site"]] if c.get("site") else [],
+                    "sources": ["your source"], "n_sources": 1, "score": None,
+                    "effect": None if c.get("effect") == "unknown" else c.get("effect"),
+                    "signor_id": None, "n_pmids": 0, "claim": True, "claim_id": c["id"],
+                    "claim_status": c.get("status"), "claim_detail": c.get("detail"),
+                    "review": c.get("review"), "quote": c.get("quote"), "source_note": c.get("source"),
+                    "page": c.get("page")})
+    return out
+
+
+def _finish(edge_rows: list[dict], seeds: set[str], truncated: bool,
+            claim_edges: list[dict] | None = None) -> dict:
     edges, seen = [], set()
     for e in edge_rows:
         key = (e["source"], e["target"], e["mechanism"])
@@ -59,14 +79,16 @@ def _finish(edge_rows: list[dict], seeds: set[str], truncated: bool) -> dict:
             continue
         seen.add(key)
         edges.append({**e, "id": "|".join(key), "sites": sorted({_site_label(s) for s in e["sites"] or []})})
+    edges += claim_edges or []
     ids = sorted(seeds | {e["source"] for e in edges} | {e["target"] for e in edges})
     return {"nodes": _nodes(ids, seeds) if ids else [], "edges": edges, "truncated": truncated}
 
 
 def network(seeds: list[str], depth: int = 1, direction: Direction = "both",
             sources: list[str] | None = None, min_score: float = 0, min_sources: int = 1,
-            mechanism: str | None = None, limit: int = 300) -> dict:
-    """The kinase-substrate neighbourhood of one or more proteins (depth 1 or 2)."""
+            mechanism: str | None = None, limit: int = 300, claims: list[dict] | None = None) -> dict:
+    """The kinase-substrate neighbourhood of one or more proteins (depth 1 or 2).
+    `claims`: a vault's claims (with status, see knowledge.claims.list_claims) to draw as well."""
     if not seeds:
         raise ValueError("Give at least one protein.")
     seed_ids: set[str] = set()
@@ -83,7 +105,10 @@ def network(seeds: list[str], depth: int = 1, direction: Direction = "both",
             more = _edge_rows(frontier, direction, mechanism, filters, limit - len(rows) + 1)
             truncated = len(more) > limit - len(rows)
             rows += more[:max(0, limit - len(rows))]
-    return _finish(rows, seed_ids, truncated)
+    claim_edges = _claim_edges(claims or [], seed_ids, direction) if claims else []
+    if mechanism:
+        claim_edges = [c for c in claim_edges if c["mechanism"] == mechanism]
+    return _finish(rows, seed_ids, truncated, claim_edges)
 
 
 # --------------------------------------------------------------------------- from tool results

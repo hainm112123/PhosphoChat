@@ -24,10 +24,16 @@ sources or edit log.md.
 3. Decide which new pages are needed: one per significant entity or concept that has no page yet.
    Don't create pages for passing mentions. For a short source, 1 to 3 pages is typical.
 
-## Step 3: Check the graph (biology sources only)
-For each key protein/kinase in the source, you may call `regulators_of`, `targets_of` or `sites_of`
-to add graph facts. Cite them as `(SIGNOR-xxxxxx; PMID nnnn)`. Skip this for sources that are not
-about specific proteins in phosphorylation signalling.
+## Step 3: Record kinase-substrate relations (biology sources only)
+For every statement in the source that a kinase or phosphatase modifies a protein, call
+`record_relation(enzyme, target, source, quote, mechanism, site, effect, page)`:
+- `quote` is the sentence from the source that says it, copied exactly. The tool checks it
+  appears in the source and rejects paraphrases; fix and resend if it complains.
+- Give the `site` (e.g. Ser81) and `effect` only when the source states them.
+- The reply tells you whether the databases already know the link (confirmed), don't (new), or
+  disagree (conflicting); you don't need to query the graph yourself. Mention new and conflicting ones on the wiki page, cited to the source,
+  e.g. "reported by this source; not in any database yet".
+- Don't record speculation ("may", "could") as a relation unless the source states it as a finding.
 
 ## Step 4: Write to wiki/
 For every affected or new page call `write_page(name, content)` with the **whole** page:

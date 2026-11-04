@@ -5,7 +5,7 @@ import { JobProgress } from "../components/JobProgress";
 import { mergeNetworks } from "../components/networkUtils";
 // Cytoscape is large: load it only when an answer has a network to draw.
 const NetworkView = lazy(() => import("../components/NetworkView").then((m) => ({ default: m.NetworkView })));
-import type { Network } from "../api";
+import type { ChatContext, Network } from "../api";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../auth";
 import { useVault } from "../vault";
@@ -21,6 +21,8 @@ type Msg = {
   saveJob?: Job;
   saveError?: string;
   graphs?: Network[]; // networks from graph tools, drawn under the answer
+  context?: ChatContext; // what was looked up before the model answered
+  notice?: string; // e.g. the answer was restarted after an invalid tool call
 };
 type Conversation = { session: string | null; messages: Msg[] };
 
@@ -85,6 +87,8 @@ export function ChatPage() {
             ...m,
             tools: m.tools.map((t) => (t.id === data.id ? { ...t, result: data.content, retry: data.retry } : t)),
           }));
+        else if (event === "context") patchLast(vault, (m) => ({ ...m, context: data }));
+        else if (event === "reset") patchLast(vault, (m) => ({ ...m, text: "", notice: data.message }));
         else if (event === "graph")
           patchLast(vault, (m) => ({ ...m, graphs: [...(m.graphs ?? []), { nodes: data.nodes, edges: data.edges }] }));
         else if (event === "done") patchLast(vault, (m) => ({ ...m, pending: false, usage: data.usage }));
@@ -151,6 +155,7 @@ export function ChatPage() {
                 )}
                 {m.text ? <Markdown text={m.text} vault={vault} pages={pages} />
                   : m.pending && <div className="muted pulse">{m.tools.length ? "Reading results..." : "Thinking..."}</div>}
+                {m.notice && <div className="muted small">{m.notice}</div>}
                 {m.error && <div className="error">{m.error}</div>}
                 {!m.pending && m.text && (
                   <div className="msg-actions">
@@ -158,6 +163,7 @@ export function ChatPage() {
                     {isAdmin && !m.saveJob && <button className="btn btn-small btn-ghost" onClick={() => save(i)}>Save to wiki</button>}
                   </div>
                 )}
+                {m.context && !m.pending && <Consulted vault={vault} context={m.context} />}
                 {m.graphs && m.graphs.length > 0 && <AnswerGraph vault={vault} graphs={m.graphs} />}
                 {m.saveError && <div className="error">Couldn't save to the wiki: {m.saveError}</div>}
                 {m.saveJob && <JobProgress job={m.saveJob} />}
@@ -200,6 +206,22 @@ function AnswerGraph({ vault, graphs }: { vault: string; graphs: Network[] }) {
       <Suspense fallback={<div className="muted small pulse">Drawing network...</div>}>
         <NetworkView data={net} height={280} compact />
       </Suspense>
+    </div>
+  );
+}
+
+/** What the answer was built from: wiki pages, recorded claims, graph proteins. */
+function Consulted({ vault, context }: { vault: string; context: ChatContext }) {
+  const parts = [
+    context.pages.length ? `${context.pages.length} wiki page${context.pages.length > 1 ? "s" : ""}` : "no wiki pages",
+    context.claims ? `${context.claims} claim${context.claims > 1 ? "s" : ""} from your sources` : null,
+    context.graph_error ? "graph unavailable"
+      : context.graph_entities.length ? `graph for ${context.graph_entities.join(", ")}` : null,
+  ].filter(Boolean);
+  return (
+    <div className="consulted muted small">
+      <span>Consulted: {parts.join(" · ")}</span>
+      {context.pages.map((p) => <Link key={p.name} className="chip" to={`/${vault}/wiki/${p.name}`}>{p.title}</Link>)}
     </div>
   );
 }

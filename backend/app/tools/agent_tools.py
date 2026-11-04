@@ -27,6 +27,7 @@ class Deps:
     vault: Vault
     created: list[str] = field(default_factory=list)
     updated: list[str] = field(default_factory=list)
+    claims: list[dict] = field(default_factory=list)   # relation claims recorded in this run
 
     def touched(self) -> list[str]:
         return self.created + [p for p in self.updated if p not in self.created]
@@ -181,6 +182,44 @@ def upsert_index(ctx: RunContext[Deps], name: str, description: str,
     return out({"status": ctx.deps.vault.upsert_index(name, description, section), "name": name})
 
 
+# --------------------------------------------------------------------------- relation claims
+
+@_retry_on_vault_error
+def record_relation(ctx: RunContext[Deps], enzyme: str, target: str, source: str, quote: str,
+                    mechanism: Literal["phosphorylation", "dephosphorylation"] = "phosphorylation",
+                    site: str | None = None,
+                    effect: Literal["up-regulates", "down-regulates", "unknown"] = "unknown",
+                    page: str | None = None) -> str:
+    """Record one kinase/phosphatase -> substrate statement the source makes, so it can be compared with the databases.
+
+    Args:
+        enzyme: the kinase or phosphatase (gene symbol or UniProt id), e.g. 'ATM'.
+        target: the substrate protein, e.g. 'TDP1'.
+        source: the source note filename the statement comes from.
+        quote: the sentence from the source that states it, copied exactly (no paraphrase).
+        mechanism: phosphorylation or dephosphorylation.
+        site: the residue if the source gives one, e.g. 'Ser81' or 'S81'.
+        effect: what the modification does to the target, if the source says.
+        page: the wiki page where you wrote this finding, if any.
+    """
+    from app.knowledge.claims import record, statuses
+    claim, added = record(ctx.deps.vault, enzyme=enzyme, target=target, site=site, mechanism=mechanism,
+                          effect=effect, source=source, quote=quote, page=page)
+    status = statuses([claim])[0]
+    if added:
+        ctx.deps.claims.append(status)
+    return out({"recorded": added, "duplicate": not added, "id": claim["id"],
+                "status": status["status"], "detail": status["detail"]})
+
+
+@_error_as_result
+def vault_claims(ctx: RunContext[Deps], protein: str | None = None,
+                 status: Literal["confirmed", "new", "conflicting"] | None = None) -> str:
+    """Kinase-substrate claims from this vault's sources, each with its status against the databases (confirmed / new / conflicting), the quote and the source."""
+    from app.knowledge.claims import list_claims
+    return out(list_claims(ctx.deps.vault, protein, status))
+
+
 # --------------------------------------------------------------------------- skills (chat)
 
 @_error_as_result
@@ -209,8 +248,9 @@ def _graph_tool(fn):
 
 # --------------------------------------------------------------------------- toolsets
 
-READ_TOOLS = [read_index, list_pages, read_page, search_pages, list_sources, read_source, read_log]
-WRITE_TOOLS = [write_page, upsert_index]
+READ_TOOLS = [read_index, list_pages, read_page, search_pages, list_sources, read_source, read_log,
+              vault_claims]
+WRITE_TOOLS = [write_page, upsert_index, record_relation]
 
 
 def vault_read_toolset() -> FunctionToolset[Deps]:

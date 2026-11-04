@@ -63,5 +63,7 @@ def test_chat_stream_includes_a_graph(make_client):
         with c.stream("POST", "/api/vaults/default/chat", json={"message": "Who phosphorylates TDP1?"}) as r:
             raw = r.read().decode().replace("\r\n", "\n")
     graphs = [json.loads(b.split("data: ", 1)[1]) for b in raw.split("\n\n") if b.startswith("event: graph")]
-    assert graphs and graphs[0]["tool"] == "regulators_of"
-    assert {"ATM", "PRKDC", "TDP1"} <= {n["name"] for n in graphs[0]["nodes"]}
+    # one network from the pre-fetched context, one from the model's own tool call
+    assert [g["tool"] for g in graphs] == ["context", "regulators_of"]
+    for g in graphs:
+        assert {"ATM", "PRKDC", "TDP1"} <= {n["name"] for n in g["nodes"]}

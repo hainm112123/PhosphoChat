@@ -63,9 +63,17 @@ Phosphorylation facts live in a Neo4j graph that merges PhosphoSIGNOR with KiNet
   otherwise with the database and a PMID from `get_interaction`, e.g. `(PhosphoSitePlus; PMID 9764820)`.
   Say how many databases report a link when it matters ("reported by 3 databases").
 
+## Claims from the user's sources
+Kinase/phosphatase -> substrate statements found in captured sources are recorded as claims
+(`record_relation`, with a verbatim quote) and compared with the databases: **confirmed**
+(the databases report it), **new** (only the user's source reports it), **conflicting**
+(the effect disagrees with SIGNOR). Claims are evidence from one source, not database facts:
+say "reported by <source>; not in any database yet" for new ones, and mention "unreviewed"
+claims as such. Rejected claims are hidden.
+
 ## Tools
-- Read: `read_index`, `list_pages`, `read_page`, `search_pages`, `list_sources`, `read_source`, `read_log`
-- Write (jobs only): `write_page` (whole page, with frontmatter), `upsert_index`
+- Read: `read_index`, `list_pages`, `read_page`, `search_pages`, `list_sources`, `read_source`, `read_log`, `vault_claims`
+- Write (jobs only): `write_page` (whole page, with frontmatter), `upsert_index`, `record_relation`
 - Graph: the tools listed above
 - Chat only: `load_skill`
 

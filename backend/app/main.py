@@ -32,6 +32,9 @@ async def lifespan(_: FastAPI):
     reg = registry()
     reg.migrate_all()  # drop per-vault AGENTS.md/CLAUDE.md/skills left by older versions
     reg.ensure(get_settings().default_vault)  # empty vault from the template on first run
+    from app.knowledge.claims import safe_sync
+    for name in reg.names():  # restore CLAIMED edges (e.g. after the graph was rebuilt)
+        safe_sync(reg.get(name))
     s = get_settings()
     store = auth_store()
     if store.ensure_admin(s.admin_username, s.admin_password):

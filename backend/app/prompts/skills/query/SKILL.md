@@ -5,6 +5,12 @@ description: Answer a question from the wiki and the kinase-substrate graph (Pho
 
 # Query: answer with citations
 
+## Step 0: Use the retrieved context
+A chat turn usually starts with "Retrieved context": the matching wiki pages, the claims
+recorded from the user's sources (with status vs the databases) and a database summary for
+the proteins in the question. Start from it; use the tools below only for more detail.
+`vault_claims(protein)` lists the recorded claims.
+
 ## Step 1: Decide where the answer lives
 - **Graph questions** (who phosphorylates X, what does kinase X act on, which sites, how does A
   reach B, evidence for a record): call the matching graph tool. One call is usually enough.

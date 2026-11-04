@@ -13,6 +13,8 @@ export const GROUP_COLORS: Record<string, string> = {
 };
 export const ROLE_COLORS = { kinase: "#bcbd22", phosphatase: "#e377c2", other: "#8a8f98" };
 export const EFFECT_COLORS = { up: "#2f9e44", down: "#e03131", unknown: "#9aa0a6" };
+/** Claims from the vault's own sources: purple, dotted, so they never look like database links. */
+export const CLAIM_COLOR = "#8e44ad";
 
 export function nodeColor(n: NetNode): string {
   return (n.kinase_group && GROUP_COLORS[n.kinase_group]) || ROLE_COLORS[n.role] || ROLE_COLORS.other;
@@ -65,8 +67,10 @@ export const NetworkView = forwardRef<NetworkHandle, Props>(function NetworkView
     const edges: ElementDefinition[] = data.edges
       .filter((e) => known.has(e.source) && known.has(e.target))
       .map((e) => ({
-        data: { ...e, id: e.id, color: EFFECT_COLORS[effectKind(e.effect)], width: 1 + e.n_sources },
-        classes: [e.mechanism === "dephosphorylation" ? "dephos" : "", e.source === e.target ? "loop" : ""].join(" "),
+        data: { ...e, id: e.id, color: e.claim ? CLAIM_COLOR : EFFECT_COLORS[effectKind(e.effect)],
+                width: e.claim ? 2.5 : 1 + e.n_sources },
+        classes: [e.mechanism === "dephosphorylation" ? "dephos" : "", e.source === e.target ? "loop" : "",
+                  e.claim ? `claim claim-${e.claim_status}` : ""].join(" "),
       }));
     const instance = cytoscape({
       container: box.current,
@@ -88,6 +92,9 @@ export const NetworkView = forwardRef<NetworkHandle, Props>(function NetworkView
           "target-arrow-shape": "triangle", "curve-style": "bezier", opacity: 0.75, "arrow-scale": 0.9,
         } },
         { selector: "edge.dephos", style: { "line-style": "dashed", "target-arrow-shape": "tee" } },
+        { selector: "edge.claim", style: { "line-style": "dotted", opacity: 0.95, "curve-style": "unbundled-bezier",
+                                           "control-point-distances": 25, "control-point-weights": 0.5 } },
+        { selector: "edge.claim-conflicting", style: { "line-color": "#c2255c", "target-arrow-color": "#c2255c" } },
         { selector: "edge:selected", style: { opacity: 1, "line-color": "#f59f00", "target-arrow-color": "#f59f00" } },
       ],
       layout: { name: data.nodes.length > 1 ? "fcose" : "grid", animate: false, randomize: true,
@@ -116,6 +123,8 @@ export function GroupLegend({ groups }: { groups: string[] }) {
       <span className="legend-item"><b style={{ background: EFFECT_COLORS.up }} />Up-regulates</span>
       <span className="legend-item"><b style={{ background: EFFECT_COLORS.down }} />Down-regulates</span>
       <span className="legend-item"><b style={{ background: EFFECT_COLORS.unknown }} />Effect unknown</span>
+      <span className="legend-item"><b className="dotted" style={{ borderColor: CLAIM_COLOR }} />Claim from your sources (new / confirmed)</span>
+      <span className="legend-item"><b className="dotted" style={{ borderColor: "#c2255c" }} />Claim conflicting with SIGNOR</span>
       <span className="legend-item muted small">Thicker line = more databases · dashed = dephosphorylation</span>
     </div>
   );

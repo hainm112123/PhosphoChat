@@ -120,6 +120,42 @@ The graph is built from `seed/` by `backend/scripts/load_graph.py`:
 - **Rebuilds:** the loader stores a dataset version in Neo4j, so the container rebuilds the
   graph only when a seed file changes.
 
+## Wiki + graph together
+
+**Chat combines both sources.** Before the model answers, PhosphoChat:
+- finds the proteins named in the question, matched exactly against the graph's names and UniProt IDs;
+- gathers the wiki pages that mention them, the claims recorded from your sources, and a compact
+  database summary (regulators, targets, direct links and paths between the proteins).
+
+The model gets this as context for that turn only, and can still call tools for more. Answers
+have up to three parts:
+- **From your wiki;**
+- **From the databases;**
+- **How they fit:** what is confirmed, what only your source reports, and what conflicts with SIGNOR.
+
+Under each answer, a "Consulted" line and a network show what was used. Turn the look-up off with
+`CHAT_PREFETCH=false`.
+
+**Claims from your sources.** A kinase/phosphatase → substrate statement in a captured paper is
+recorded as a claim:
+- **Recording:** capture and sync call `record_relation`; the code checks that both proteins
+  exist in the graph and that the quote appears **verbatim** in the source.
+- **Storage:** claims live in the vault (`relations.jsonl`, git-versioned and rolled back with a
+  failed capture). They are compared with the databases each time they're read:
+
+| Status | Meaning |
+|---|---|
+| confirmed | a database reports the same link (and site, when given) |
+| new | only your source reports it, or reports a site the databases don't have |
+| conflicting | the effect disagrees with SIGNOR |
+
+- **Separate from the databases:** claims never mix into the curated database links.
+- **Graph explorer:** they appear as purple dotted edges, behind the "Include claims from this
+  vault's sources" toggle.
+- **Lint** lists new and conflicting claims.
+- **Review:** admins can mark a claim reviewed or rejected from the explorer; rejected claims are hidden.
+- **Wiki pages per protein:** clicking a protein in the explorer shows the wiki pages that mention it.
+
 ## Users and roles
 
 Everyone has to sign in. There are two roles:
@@ -411,6 +447,7 @@ changes and wins over the process environment for the keys it defines.
 | `VERIFY_CAPTURES`, `VERIFY_SOURCE_CHARS` | `false`, `12000` | Fact-check after capture/sync; source text given to the checker |
 | `CHAT_REQUEST_LIMIT`, `JOB_REQUEST_LIMIT` | `15`, `40` | Max model calls per chat answer / per job |
 | `CHAT_HISTORY_MESSAGES` | `20` | Chat history kept per session |
+| `CHAT_PREFETCH`, `CHAT_CONTEXT_CHARS` | `true`, `6000` | Look up wiki pages, claims and graph data for the question before the model answers; size cap |
 
 ## Tests
 
@@ -420,6 +457,8 @@ cd backend && .venv/Scripts/python -m pytest -q
 
 - `test_graph.py`, `test_graph_api.py`: graph tools, merged sources, explorer API and chat graphs. They need Neo4j and are skipped otherwise.
 - `test_load_graph.py`: the merged loader and the kinase-group builder, offline on small fixtures.
+- `test_knowledge.py`: entity linking, hybrid retrieval and per-turn context (offline).
+- `test_claims.py`: grounded claim recording, statuses against the databases, rollback, projection and review (needs Neo4j).
 - `test_vault.py`: the vault rules (paths, immutability, frontmatter, log, index, lint, git).
 - `test_jobs.py`: capture, lint and sync with a scripted model, so no API key is needed. Covers
   tool-call correction, rollback, output caps and the fact-check/revision loop.

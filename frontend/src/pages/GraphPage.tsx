@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { graphApi, type Interaction, type NetEdge, type NetNode, type Network, type NetworkQuery } from "../api";
+import { claimsApi, graphApi, type Interaction, type NetEdge, type NetNode, type Network, type NetworkQuery } from "../api";
+import { useAuth } from "../auth";
+import { Link } from "react-router-dom";
 import { GroupLegend, NetworkView, nodeColor, type NetworkHandle } from "../components/NetworkView";
 import { useVault } from "../vault";
 
@@ -21,10 +23,14 @@ export function GraphPage() {
 
   const [depth, setDepth] = useState(1);
   const [direction, setDirection] = useState<NetworkQuery["direction"]>("both");
-  const [sources, setSources] = useState<string[]>(ALL_SOURCES);
-  const [minScore, setMinScore] = useState(0);
-  const [minSources, setMinSources] = useState(1);
+  // The "Databases" filter panel is commented out below, so these stay at their defaults.
+  // Restore the setters (setSources, setMinScore, setMinSources) together with the panel.
+  const [sources] = useState<string[]>(ALL_SOURCES);
+  const [minScore] = useState(0);
+  const [minSources] = useState(1);
   const [mechanism, setMechanism] = useState("");
+  const [showClaims, setShowClaims] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
   const [groups, setGroups] = useState<string[]>([]);
 
   const [net, setNet] = useState<Network | null>(null);
@@ -42,13 +48,14 @@ export function GraphPage() {
     setError(null);
     const t = setTimeout(() => {
       graphApi.network({ seeds, depth, direction, sources: sources.length === ALL_SOURCES.length ? [] : sources,
-                         min_score: minScore, min_sources: minSources, mechanism, limit: 300 })
+                         min_score: minScore, min_sources: minSources, mechanism, limit: 300,
+                         vault, claims: showClaims })
         .then((n) => { if (!cancelled) { setNet(n); setSelected(null); } })
         .catch((e) => { if (!cancelled) setError(e.message); })
         .finally(() => { if (!cancelled) setLoading(false); });
     }, 250);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [seeds, depth, direction, sources, minScore, minSources, mechanism]);
+  }, [seeds, depth, direction, sources, minScore, minSources, mechanism, vault, showClaims, reloadKey]);
 
   const setSeeds = (next: string[]) => {
     const p = new URLSearchParams(params);
@@ -120,6 +127,14 @@ export function GraphPage() {
         </fieldset> */}
 
         <fieldset>
+          <legend>Your vault</legend>
+          <label className="check">
+            <input type="checkbox" checked={showClaims} onChange={(e) => setShowClaims(e.target.checked)} />
+            Include claims from this vault's sources
+          </label>
+        </fieldset>
+
+        <fieldset>
           <legend>Kinase groups</legend>
           <GroupLegend groups={groups} />
         </fieldset>
@@ -164,11 +179,14 @@ export function GraphPage() {
         <aside className="graph-detail">
           <button className="link-btn close" onClick={() => setSelected(null)} aria-label="Close details">×</button>
           {selected.node && (
-            <NodeDetail node={selected.node} net={net}
+            <NodeDetail node={selected.node} net={net} vault={vault}
               onExpand={() => setSeeds([...seeds, selected.node!.name])}
               onAsk={() => navigate(`/${vault}/chat`, { state: { prefill: `What phosphorylates ${selected.node!.name}, and what does it phosphorylate?` } })} />
           )}
-          {selected.edge && <EdgeDetail edge={selected.edge} enzyme={byId.get(selected.edge.source)} target={byId.get(selected.edge.target)} />}
+          {selected.edge && (selected.edge.claim
+            ? <ClaimDetail edge={selected.edge} vault={vault} enzyme={byId.get(selected.edge.source)}
+                target={byId.get(selected.edge.target)} onChanged={() => setReloadKey((k) => k + 1)} />
+            : <EdgeDetail edge={selected.edge} enzyme={byId.get(selected.edge.source)} target={byId.get(selected.edge.target)} />)}
         </aside>
       )}
     </div>
@@ -210,7 +228,14 @@ function SeedPicker({ seeds, onChange }: { seeds: string[]; onChange: (s: string
   );
 }
 
-function NodeDetail({ node, net, onExpand, onAsk }: { node: NetNode; net: Network | null; onExpand: () => void; onAsk: () => void }) {
+function NodeDetail({ node, net, vault, onExpand, onAsk }: {
+  node: NetNode; net: Network | null; vault: string; onExpand: () => void; onAsk: () => void;
+}) {
+  const [pages, setPages] = useState<{ page: string; title: string; summary: string }[] | null>(null);
+  useEffect(() => {
+    setPages(null);
+    claimsApi.entityPages(vault, [node.id]).then((r) => setPages(r[node.id] ?? [])).catch(() => setPages([]));
+  }, [vault, node.id]);
   const regs = net?.edges.filter((e) => e.target === node.id).length ?? 0;
   const tgts = net?.edges.filter((e) => e.source === node.id).length ?? 0;
   const uniprot = /^[A-Z0-9]{6,10}(-\d+)?$/.test(node.id);
@@ -223,6 +248,13 @@ function NodeDetail({ node, net, onExpand, onAsk }: { node: NetNode; net: Networ
         {node.kinase_group && <><dt>Kinase group</dt><dd>{node.kinase_group}{node.kinase_family ? ` · ${node.kinase_family}` : ""}</dd></>}
         <dt>In this view</dt><dd>{regs} regulator{regs === 1 ? "" : "s"}, {tgts} target{tgts === 1 ? "" : "s"}</dd>
       </dl>
+      <h3>In your wiki</h3>
+      {pages == null ? <div className="muted small pulse">Looking...</div>
+        : pages.length === 0 ? <div className="muted small">Nothing in this vault yet.</div>
+        : <ul className="wiki-links">{pages.map((p) => (
+            <li key={p.page}><Link to={`/${vault}/wiki/${p.page}`}>{p.title}</Link>
+              {p.summary && <span className="muted small"> {p.summary}</span>}</li>
+          ))}</ul>}
       <div className="detail-actions">
         {!node.is_seed && <button className="btn btn-small" onClick={onExpand}>Expand</button>}
         <button className="btn btn-small btn-ghost" onClick={onAsk}>Ask in chat</button>
@@ -271,6 +303,52 @@ function EdgeDetail({ edge, enzyme, target }: { edge: NetEdge; enzyme?: NetNode;
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+function ClaimDetail({ edge, vault, enzyme, target, onChanged }: {
+  edge: NetEdge; vault: string; enzyme?: NetNode; target?: NetNode; onChanged: () => void;
+}) {
+  const { isAdmin } = useAuth();
+  const [review, setReview] = useState(edge.review ?? "unreviewed");
+  const [error, setError] = useState<string | null>(null);
+  async function set(next: "reviewed" | "rejected" | "unreviewed") {
+    setError(null);
+    try {
+      await claimsApi.review(vault, edge.claim_id!, next);
+      setReview(next);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+  return (
+    <div className="detail">
+      <h2>{enzyme?.name ?? edge.source} → {target?.name ?? edge.target}</h2>
+      <div className="claim-box">
+        <div><strong>Claim from your source</strong> · <span className={`status-${edge.claim_status}`}>{edge.claim_status}</span>
+          {" "}· <span className="muted">{review}</span></div>
+        <div className="small">{edge.claim_detail}</div>
+        <blockquote>“{edge.quote}”</blockquote>
+        <div className="small">
+          Source: <Link to={`/${vault}/sources/${encodeURIComponent(edge.source_note ?? "")}`}>{edge.source_note}</Link>
+          {edge.page && <> · page <Link to={`/${vault}/wiki/${edge.page}`}>{edge.page}</Link></>}
+        </div>
+      </div>
+      <dl>
+        <dt>Mechanism</dt><dd>{edge.mechanism}</dd>
+        <dt>Site</dt><dd>{edge.sites.join(", ") || "not given"}</dd>
+        <dt>Effect</dt><dd>{edge.effect ?? "not stated"}</dd>
+      </dl>
+      {isAdmin && (
+        <div className="detail-actions">
+          {review !== "reviewed" && <button className="btn btn-small" onClick={() => set("reviewed")}>Mark reviewed</button>}
+          {review !== "rejected" && <button className="btn btn-small btn-ghost btn-danger" onClick={() => set("rejected")}>Reject</button>}
+          {review !== "unreviewed" && <button className="btn btn-small btn-ghost" onClick={() => set("unreviewed")}>Reset</button>}
+        </div>
+      )}
+      {error && <div className="error">{error}</div>}
     </div>
   );
 }

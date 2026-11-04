@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from dataclasses import replace
 from functools import lru_cache
 
 from pydantic_ai import Agent, RunContext
@@ -14,15 +15,26 @@ from app.tools.agent_tools import Deps, graph_toolset, skill_toolset, vault_read
 
 CHAT_RULES = """\
 # Your role in this conversation
-You are PhosphoChat, the question-answering assistant for this vault. You can read the wiki
-and sources and query the PhosphoSIGNOR graph; you cannot change the vault.
+You are PhosphoChat, the question-answering assistant for this vault. You combine the user's
+wiki (their notes and sources) with the kinase-substrate databases (PhosphoSIGNOR + KiNet);
+you cannot change the vault.
 
-- Answer only from tool results; if the tools don't have it, say so. Don't guess.
-- For graph questions call the matching graph tool first (one call is often enough).
-- For questions about the user's notes, read_index then search_pages/read_page.
-- Cite every fact: wiki pages as [[page-name]], sources as [[source: filename.md]],
-  graph facts as (SIGNOR-277418; PMID 30419043).
-- Keep answers short and structured; use a small table for lists of enzymes/targets.
+- Each turn may start with "Retrieved context": what the wiki, the user's recorded claims and
+  the databases say about the proteins in the question. Use it first; call tools only for more
+  detail (read_page, regulators_of, get_interaction, vault_claims...). If there is none, use the tools.
+  Don't re-read pages or sources the context already quotes unless you need a detail it lacks:
+  every extra call makes the request bigger, and small models have tight token limits.
+- Answer only from that context and tool results; if neither has it, say so. Don't guess.
+- Structure the answer in up to three short parts, leaving out a part that would be empty:
+  **From your wiki** - what the user's pages say, citing [[page-name]] / [[source: file.md]].
+  **From the databases** - cite (SIGNOR-277418; PMID ...) or (PhosphoSitePlus; PMID ...); say how
+  many databases agree when it matters.
+  **How they fit** - agreement and gaps: claims marked NEW are reported only by the user's
+  source ("not in any database yet"); CONFLICTING ones disagree with SIGNOR; well-supported
+  database facts missing from the wiki can be suggested for capture. Mention "unreviewed" claims as such.
+  When one side has nothing, say so in one line (e.g. "Your wiki has nothing on TDP1 yet.").
+- For a pure database question with nothing in the wiki, a short answer with a table is fine.
+- Keep answers short; use a small table for lists of enzymes/targets.
 - load_skill("query") has the detailed answering rules if you need them.
 - Never write code, scripts or Cypher.
 """
@@ -43,6 +55,24 @@ def chat_agent() -> Agent[Deps, str]:
     )
 
 
+NO_TOOLS_NOTE = """\
+# This answer
+Tools are not available for this answer: answer from the retrieved context only, and say
+briefly when the context doesn't cover something.
+"""
+
+
+@lru_cache
+def chat_agent_without_tools() -> Agent[Deps, str]:
+    """Fallback when the model keeps inventing tools: same rules, no tools, retrieved context only."""
+    return Agent(
+        deps_type=Deps,
+        name="phosphochat-chat-notools",
+        instructions=[_instructions, NO_TOOLS_NOTE],
+        defer_model_check=True,
+    )
+
+
 # --------------------------------------------------------------------------- sessions
 
 class ChatSessions:
@@ -58,6 +88,10 @@ class ChatSessions:
 
     def set(self, user_id: int, vault: str, session: str, messages: list[ModelMessage]) -> None:
         key = (user_id, vault, session)
+        # Requests carry the instructions they were sent with, including the retrieved context.
+        # Those are rebuilt every turn, so don't keep them in the stored conversation.
+        messages = [replace(m, instructions=None) if isinstance(m, ModelRequest) and m.instructions else m
+                    for m in messages]
         self._data[key] = _trim(messages, get_settings().chat_history_messages)
         self._data.move_to_end(key)
         while len(self._data) > self.max_sessions:

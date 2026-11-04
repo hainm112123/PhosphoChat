@@ -350,3 +350,14 @@ table.records th { font-size: 11.5px; text-transform: uppercase; color: var(--mu
   .graph-detail { width: auto; border-left: 0; border-top: 1px solid var(--border); }
   .graph-main .network-view { height: 70vh !important; }
 }
+
+.legend-item b.dotted { height: 0; background: none !important; border-top: 3px dotted; }
+.claim-box { border-left: 3px solid #8e44ad; background: color-mix(in srgb, #8e44ad 8%, var(--panel)); padding: 8px 10px; border-radius: 0 6px 6px 0; margin: 8px 0; font-size: 13.5px; }
+.claim-box blockquote { margin: 6px 0; font-style: italic; }
+.status-new { color: #8e44ad; font-weight: 600; }
+.status-confirmed { color: var(--ok); font-weight: 600; }
+.status-conflicting { color: #c2255c; font-weight: 600; }
+.consulted { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.wiki-links { margin: 4px 0 12px; padding-left: 18px; font-size: 13.5px; }
+.wiki-links li { margin: 3px 0; }
+.detail h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 10px 0 4px; }

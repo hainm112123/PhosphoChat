@@ -8,7 +8,9 @@ import re
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
-from pydantic_ai import Agent, AgentRunResultEvent, ModelHTTPError, UsageLimitExceeded, UsageLimits, UserError
+from pydantic_ai import (
+    Agent, AgentRunResultEvent, ModelAPIError, ModelHTTPError, UsageLimitExceeded, UsageLimits, UserError,
+)
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -45,9 +47,33 @@ class JobFailed(Exception):
     """A job step failed in a way the user should read as-is (the vault is rolled back)."""
 
 
+BAD_TOOL_CALL_MARKERS = ("tool call validation failed", "not in request.tools", "tool_use_failed")
+
+
+def is_bad_tool_call(e: BaseException) -> bool:
+    """The provider rejected a tool call the model made up (e.g. Groq: 'attempted to call tool
+    X which was not in request.tools'). The run can be retried; the model just slipped."""
+    return isinstance(e, ModelAPIError) and any(m in str(e) for m in BAD_TOOL_CALL_MARKERS)
+
+
+def is_too_large(e: BaseException) -> bool:
+    """A single request bigger than the provider allows (e.g. Groq free tier: HTTP 413
+    'Request too large ... tokens per minute'). Waiting doesn't help; a smaller request does."""
+    return (isinstance(e, ModelHTTPError) and e.status_code == 413) or "Request too large" in str(e)
+
+
 def explain_error(e: Exception) -> str:
     if isinstance(e, JobFailed):
         return str(e)
+    if is_too_large(e):
+        return ("The request was larger than the model's per-minute token limit allows (HTTP 413). "
+                "Pick a model with a higher limit on the Models page, or lower CHAT_CONTEXT_CHARS / "
+                "TOOL_OUTPUT_CHARS.")
+    if is_bad_tool_call(e):
+        m = re.search(r"call tool '([^']+)'", str(e))
+        return (f"The model tried to use a tool that doesn't exist{f' ({m.group(1)})' if m else ''} and the "
+                "provider stopped the request. Try again, or pick a model that is better at tool calls "
+                "(Models page).")
     if isinstance(e, ModelHTTPError):
         if e.status_code == 429:
             detail = e.body.get("error", {}).get("message", "") if isinstance(e.body, dict) else ""
@@ -77,10 +103,13 @@ def explain_error(e: Exception) -> str:
 
 async def stream_run(agent: Agent, prompt: str, *, deps: Any, request_limit: int,
                      history: Sequence[ModelMessage] | None = None,
-                     model: str | None = None, role: Role = "chat") -> AsyncIterator[dict]:
+                     model: str | None = None, role: Role = "chat",
+                     extra_instructions: str | None = None) -> AsyncIterator[dict]:
     """Yield UI events; the last one is {"type": "result", "output", "messages", "usage"}."""
     async with agent.run_stream_events(
+        # extra_instructions apply to this run only (not saved in the history): e.g. retrieved context.
         prompt, deps=deps, message_history=list(history or []), model=get_model(model, role),
+        instructions=extra_instructions,
         model_settings=model_settings(), usage_limits=UsageLimits(request_limit=request_limit),
     ) as events:
         async for ev in events:

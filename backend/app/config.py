@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     verify_captures: bool = False       # fact-check capture/sync pages against their sources
     verify_source_chars: int = 12000    # source text sent to the fact-checker
     chat_history_messages: int = 20
+    chat_prefetch: bool = True          # look up wiki + graph for the question before the model runs
+    chat_context_chars: int = 6000      # size cap of that retrieved context
     chat_request_limit: int = 15
     job_request_limit: int = 40
 

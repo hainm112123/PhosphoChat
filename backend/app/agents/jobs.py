@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
 from app import prompts
-from app.agents.runtime import JobFailed, explain_error, stream_run
+from app.agents.runtime import JobFailed, explain_error, is_bad_tool_call, stream_run
 from app.agents.verify import Issue, verify_pages
 from app.config import get_settings
 from app.llm import model_name
@@ -100,6 +100,11 @@ def prepare(vault: Vault, kind: JobKind, params: dict) -> tuple[str | None, dict
 
     if kind == "lint":
         findings = vault.lint_mechanical()
+        from app.knowledge.claims import list_claims
+        brief = lambda c: {k: c.get(k) for k in ("enzyme", "target", "site", "source", "page", "detail")}  # noqa: E731
+        claims = list_claims(vault)
+        findings["claims_new"] = [brief(c) for c in claims if c["status"] == "new"]
+        findings["claims_conflicting"] = [brief(c) for c in claims if c["status"] == "conflicting"]
         fixed = []
         for n in findings["missing_from_index"]:
             vault.upsert_index(n, vault.page_meta(n).get("summary", ""),
@@ -173,6 +178,10 @@ def finish(vault: Vault, kind: JobKind, deps: JobContext, ctx: dict, report: Job
         elif fact_check is not None:
             lines.append(f"Fact-check: {fact_check['issues_found']} unsupported claim(s) found"
                          + (", sent back for revision" if fact_check["issues_found"] else ""))
+        if deps.claims:
+            new = sum(1 for c in deps.claims if c["status"] == "new")
+            conflicting = sum(1 for c in deps.claims if c["status"] == "conflicting")
+            lines.append(f"Relations recorded: {len(deps.claims)} (new: {new}, conflicting: {conflicting})")
         if report.key_takeaway:
             lines.append(f"Key takeaway: {' '.join(report.key_takeaway.split())}")
     else:
@@ -185,9 +194,14 @@ def finish(vault: Vault, kind: JobKind, deps: JobContext, ctx: dict, report: Job
                "sync": f"sync: {len(ctx.get('sources', []))} source(s)",
                "lint": "lint", "digest": f"digest: {ctx.get('recap', '')}"}[kind]
     sha = vault.commit(subject)
+    if deps.claims:  # show the new claims in the graph (best effort; relations.jsonl is the truth)
+        from app.knowledge.claims import safe_sync
+        safe_sync(vault)
     return {"report": report.report, "pages_created": deps.created,
             "pages_updated": deps.updated, "warnings": warnings, "commit": sha,
-            "fact_check": fact_check}
+            "fact_check": fact_check,
+            "claims": [{k: c.get(k) for k in ("id", "enzyme", "target", "site", "status", "detail")}
+                       for c in deps.claims]}
 
 
 # --------------------------------------------------------------------------- run
@@ -239,17 +253,37 @@ async def run_job(vault: Vault, kind: JobKind, params: dict, emit: Emit,
 
 async def _agent_turn(prompt: str, deps: JobContext, model: str | None, emit: Emit,
                       history: list | None = None) -> tuple[JobReport, list]:
-    report, messages = None, []
-    async for ev in stream_run(job_agent(), prompt, deps=deps, history=history,
-                               request_limit=get_settings().job_request_limit, model=model,
-                               role="job"):
-        if ev["type"] == "result":
-            report, messages = ev["output"], ev["messages"]
-            await emit({"type": "usage", **ev["usage"]})
-        elif ev["type"] != "graph":  # networks are for chat answers, not job logs
-            await emit(ev)
-    assert report is not None
-    return report, messages
+    """One agent turn. If the provider rejects a tool the model made up, the turn is run once
+    more with the exact tool names spelled out; work already done (pages written, claims
+    recorded) stays, and the whole job still rolls back if the retry fails too."""
+    for attempt in range(2):
+        report, messages = None, []
+        turn_prompt = prompt if attempt == 0 else (
+            prompt + "\n\nNote: a previous attempt called a tool that doesn't exist. Use only these "
+            f"tools, spelled exactly: {', '.join(sorted(_tool_names()))}.")
+        try:
+            async for ev in stream_run(job_agent(), turn_prompt, deps=deps, history=history,
+                                       request_limit=get_settings().job_request_limit, model=model,
+                                       role="job"):
+                if ev["type"] == "result":
+                    report, messages = ev["output"], ev["messages"]
+                    await emit({"type": "usage", **ev["usage"]})
+                elif ev["type"] != "graph":  # networks are for chat answers, not job logs
+                    await emit(ev)
+        except Exception as e:
+            if attempt == 0 and is_bad_tool_call(e):
+                await emit({"type": "info", "message": "The model called a tool that doesn't exist; retrying this step."})
+                continue
+            raise
+        assert report is not None
+        return report, messages
+    raise AssertionError("unreachable")
+
+
+def _tool_names() -> set[str]:
+    from app.tools.agent_tools import READ_TOOLS, WRITE_TOOLS
+    from app.graph.signor import GRAPH_TOOLS
+    return {f.__name__ for f in (*READ_TOOLS, *WRITE_TOOLS, *GRAPH_TOOLS)}
 
 
 def _issue_lines(issues: list[Issue]) -> str:

@@ -111,6 +111,25 @@ export type NetEdge = {
   effect: string | null;
   signor_id: string | null;
   n_pmids: number;
+  // set on claims recorded from the vault's sources (not database links)
+  claim?: boolean;
+  claim_id?: string;
+  claim_status?: "confirmed" | "new" | "conflicting" | "unknown";
+  claim_detail?: string;
+  review?: "unreviewed" | "reviewed" | "rejected";
+  quote?: string;
+  source_note?: string;
+  page?: string | null;
+};
+export type Claim = {
+  id: string; enzyme: string; enzyme_id: string; target: string; target_id: string;
+  site: string | null; mechanism: string; effect: string; source: string; quote: string;
+  page: string | null; review: "unreviewed" | "reviewed" | "rejected";
+  status: "confirmed" | "new" | "conflicting" | "unknown"; detail: string; databases?: string[];
+};
+export type ChatContext = {
+  entities: string[]; pages: { name: string; title: string }[]; graph_entities: string[];
+  claims: number; graph_error: string | null;
 };
 export type Network = { nodes: NetNode[]; edges: NetEdge[]; truncated?: boolean };
 export type InteractionRecord = {
@@ -137,6 +156,20 @@ export type NetworkQuery = {
   min_sources: number;
   mechanism: string;
   limit: number;
+  vault?: string;
+  claims?: boolean;
+};
+
+export const claimsApi = {
+  list: (vault: string, protein?: string) =>
+    request<Claim[]>(`/api/vaults/${encodeURIComponent(vault)}/claims${protein ? `?protein=${encodeURIComponent(protein)}` : ""}`),
+  review: (vault: string, id: string, review: Claim["review"]) =>
+    request<Claim>(`/api/vaults/${encodeURIComponent(vault)}/claims/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ review }),
+    }),
+  entityPages: (vault: string, ids: string[]) =>
+    request<Record<string, { page: string; title: string; summary: string }[]>>(
+      `/api/vaults/${encodeURIComponent(vault)}/entity-pages?ids=${encodeURIComponent(ids.join(","))}`),
 };
 
 export const graphApi = {
@@ -150,6 +183,8 @@ export const graphApi = {
     });
     if (q.sources.length) p.set("sources", q.sources.join(","));
     if (q.mechanism) p.set("mechanism", q.mechanism);
+    if (q.vault) p.set("vault", q.vault);
+    if (q.claims === false) p.set("claims", "false");
     return request<Network>(`/api/graph/network?${p}`);
   },
   interaction: (enzyme: string, target: string) =>

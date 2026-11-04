@@ -1,6 +1,6 @@
 ---
 name: query
-description: Answer a question from the wiki and the PhosphoSIGNOR graph, citing every fact. Use for any question about what the vault knows or about kinases, phosphatases, substrates, phosphosites and signalling paths.
+description: Answer a question from the wiki and the kinase-substrate graph (PhosphoSIGNOR + KiNet), citing every fact. Use for any question about what the vault knows or about kinases, phosphatases, substrates, phosphosites and signalling paths.
 ---
 
 # Query: answer with citations
@@ -19,7 +19,7 @@ description: Answer a question from the wiki and the PhosphoSIGNOR graph, citing
 - Cite every fact:
   - wiki: `[[page-name]]`
   - source: `[[source: filename.md]]`
-  - graph: `(SIGNOR-277418; PMID 30419043)`, and mention the score when it matters.
+  - graph: `(SIGNOR-277418; PMID 30419043)` when SIGNOR reports the link, otherwise the database and a PMID from `get_interaction`, e.g. `(PhosphoSitePlus; PMID 9764820)`. Mention the score, or how many databases agree, when it matters.
 - For lists of regulators/targets, prefer a short table: enzyme, site(s), effect, score, signor_id.
 - Mention when results were cut (e.g. "showing 20 of 85; ask for more or set min_score").
 

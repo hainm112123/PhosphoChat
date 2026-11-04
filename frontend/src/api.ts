@@ -90,6 +90,73 @@ const json = (method: string, body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
+export type NetNode = {
+  id: string;
+  name: string;
+  type: string;
+  kinase_group: string | null;
+  kinase_family: string | null;
+  role: "kinase" | "phosphatase" | "other";
+  is_seed: boolean;
+};
+export type NetEdge = {
+  id: string;
+  source: string;
+  target: string;
+  mechanism: string;
+  sites: string[];
+  sources: string[];
+  n_sources: number;
+  score: number | null;
+  effect: string | null;
+  signor_id: string | null;
+  n_pmids: number;
+};
+export type Network = { nodes: NetNode[]; edges: NetEdge[]; truncated?: boolean };
+export type InteractionRecord = {
+  source: string;
+  signor_id?: string;
+  score?: number;
+  effect?: string;
+  evidence?: string;
+  pmids?: string[];
+  sites?: string[];
+  pubmed_urls?: string[];
+};
+export type Interaction = {
+  enzyme: string;
+  target: string;
+  interactions: { mechanism: string; sites: string[]; sources: string[]; score: number | null; effect: string | null; records: InteractionRecord[] }[];
+};
+export type NetworkQuery = {
+  seeds: string[];
+  depth: number;
+  direction: "regulators" | "targets" | "both";
+  sources: string[];
+  min_score: number;
+  min_sources: number;
+  mechanism: string;
+  limit: number;
+};
+
+export const graphApi = {
+  search: (q: string) =>
+    request<{ id: string; name: string; type: string; kinase_group: string | null }[]>(
+      `/api/graph/search?q=${encodeURIComponent(q)}`),
+  network: (q: NetworkQuery) => {
+    const p = new URLSearchParams({
+      seeds: q.seeds.join(","), depth: String(q.depth), direction: q.direction,
+      min_score: String(q.min_score), min_sources: String(q.min_sources), limit: String(q.limit),
+    });
+    if (q.sources.length) p.set("sources", q.sources.join(","));
+    if (q.mechanism) p.set("mechanism", q.mechanism);
+    return request<Network>(`/api/graph/network?${p}`);
+  },
+  interaction: (enzyme: string, target: string) =>
+    request<Interaction>(`/api/graph/interaction?enzyme=${encodeURIComponent(enzyme)}&target=${encodeURIComponent(target)}`),
+  meta: () => request<{ kinase_groups: string[]; sources: string[]; links_per_source: Record<string, number> }>("/api/graph/meta"),
+};
+
 export type ModelRole = "chat" | "job" | "verify";
 export type CatalogProvider = {
   prefix: string;

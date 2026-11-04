@@ -358,4 +358,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # The graph now merges PhosphoSIGNOR with KiNet; this module keeps the SIGNOR parser and
+    # loading helpers, and running it runs the merged loader (scripts/load_graph.py).
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import load_graph
+    load_graph.main()

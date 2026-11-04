@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { api, MODELS_CHANGED_EVENT, type ModelStatus } from "./api";
 import { AdminOnly, useAuth } from "./auth";
@@ -12,6 +12,7 @@ import { SourcesPage } from "./pages/SourcesPage";
 import { LogPage } from "./pages/LogPage";
 import { UsersPage } from "./pages/UsersPage";
 import { ModelsPage } from "./pages/ModelsPage";
+const GraphPage = lazy(() => import("./pages/GraphPage").then((m) => ({ default: m.GraphPage })));
 
 function Shell() {
   const { vault = "default" } = useParams();
@@ -51,6 +52,7 @@ function Shell() {
   // Capture and Users are management: shown to admins only (the server enforces it too).
   const nav = [
     ["chat", "Chat", false],
+    ["graph", "Graph", false],
     ["capture", "Capture", true],
     ["wiki", "Wiki", false],
     ["sources", "Sources", false],
@@ -127,6 +129,7 @@ export function App() {
       <Route path="/:vault" element={<Shell />}>
         <Route index element={<Navigate to="chat" replace />} />
         <Route path="chat" element={<ChatPage />} />
+        <Route path="graph" element={<Suspense fallback={<div className="empty muted pulse">Loading graph explorer...</div>}><GraphPage /></Suspense>} />
         <Route path="capture" element={<AdminOnly what="capture sources"><CapturePage /></AdminOnly>} />
         <Route path="wiki" element={<WikiPage />} />
         <Route path="wiki/:page" element={<WikiPage />} />

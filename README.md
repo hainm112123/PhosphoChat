@@ -1,12 +1,15 @@
 # PhosphoChat
 
-A website for an LLM-Wiki "second brain" (Karpathy's method) over the PhosphoSIGNOR
-kinase–substrate graph:
+A website for an LLM-Wiki "second brain" (Karpathy's method) over a kinase–substrate graph that
+merges **PhosphoSIGNOR** with **KiNet** (PhosphoSitePlus, EPSD, iPTMNet):
 
 - **Capture**: paste text, a URL or a file. It is saved unchanged in `sources/`, then an agent
   folds it into `wiki/` pages.
 - **Chat**: answers from the wiki and the Neo4j graph, citing `[[pages]]`, `[[source: …]]` and
   `(SIGNOR-…; PMID …)`. A good answer can be saved back into the wiki.
+- **Graph**: an interactive network explorer, with nodes coloured by kinase group, filters per
+  database and per-database evidence with PubMed links. Chat answers that use the graph show
+  their network inline.
 - **Wiki and Sources**: a browser with wiki links, callouts and backlinks.
 - **Log**: every session that changed the vault, with buttons for Sync, Lint and Digest.
 
@@ -17,7 +20,7 @@ off and write scripts.
 ## Run with Docker
 
 The image holds the backend and the built UI. `docker compose` adds Neo4j and a one-time loader
-that fills the graph from the bundled `seed/PhosphoSIGNOR_all_Data.tsv`.
+that builds the graph from the bundled `seed/` files (see Data sources).
 
 ```bash
 cp .env.example .env    # set at least: a model key, NEO4J_PASSWORD, ADMIN_USERNAME, ADMIN_PASSWORD
@@ -60,7 +63,7 @@ values), the Neo4j connection and whether an admin exists.
 | Logs | `docker compose logs -f app` |
 | Update | `git pull && docker compose up -d --build` |
 | Back up vaults / users | `docker run --rm -v phosphochat_vaults:/v -v "$PWD":/b alpine tar czf /b/vaults.tgz -C /v .` (same with `phosphochat_appdb`) |
-| Reload the graph | `docker compose run --rm graph-loader python scripts/load_signor.py --file /app/seed/PhosphoSIGNOR_all_Data.tsv --wipe` |
+| Reload the graph | `docker compose run --rm graph-loader python scripts/load_graph.py --wipe` (normally automatic when `seed/` changes) |
 | Use the Ollama desktop app on the host | `MODEL=ollama:<model>`; nothing else (see Models → Local models) |
 | Run Ollama inside the stack | `docker compose --profile local-llm up -d`, then `OLLAMA_BASE_URL=http://ollama:11434/v1` |
 
@@ -75,10 +78,10 @@ Prerequisites: Python 3.12+, Node 20+, Docker, and a Groq API key (https://conso
 # 1. Config
 cp .env.example .env           # set GROQ_API_KEY, NEO4J_PASSWORD, ADMIN_USERNAME/ADMIN_PASSWORD
 
-# 2. Neo4j with PhosphoSIGNOR. Uncomment the neo4j `ports:` in docker-compose.yml first,
+# 2. Neo4j with the graph. Uncomment the neo4j `ports:` in docker-compose.yml first,
 #    or keep using an existing Neo4j on localhost:7687.
 docker compose up -d neo4j
-backend/.venv/Scripts/python backend/scripts/load_signor.py --if-empty   # loads seed/ by default
+backend/.venv/Scripts/python backend/scripts/load_graph.py --if-outdated   # builds from seed/
 
 # 3. Backend
 cd backend
@@ -95,6 +98,27 @@ npm run dev                    # http://localhost:5173 (proxies /api to :8000)
 On first start the backend creates an **empty** vault in `vaults/default/` from the template
 and gives it its own git repo. `npm run build` puts the UI in `frontend/dist`, which the backend
 then serves itself at http://localhost:8000.
+
+## Data sources
+
+The graph is built from `seed/` by `backend/scripts/load_graph.py`:
+
+| File | What it is | Size |
+|---|---|---|
+| `PhosphoSIGNOR_all_Data.tsv` | SIGNOR phosphorylation and dephosphorylation records, with effect (up/down-regulates) and confidence score | ~13.4k records |
+| `ksi_source_full_dataset.csv` | KiNet's kinase–substrate dataset from PhosphoSitePlus, EPSD and iPTMNet, with evidence type and PMIDs | 27.4k rows, 16.4k unique kinase–substrate–site triples |
+| `kinase_groups.csv` | Kinase group (TK, TKL, STE, CK1, AGC, CAMK, CMGC, Atypical, Other) per UniProt ID. Built over HTTPS from UniProt by `backend/scripts/build_kinase_groups.py`; provenance and checks are in `kinase_groups.SOURCE.md` | 470 kinases |
+
+- **One link per interaction:** each enzyme → site and enzyme → target link exists once and lists
+  every database that reports it. 7.5k triples are in both SIGNOR and KiNet; KiNet adds about 8.8k.
+  The result is about 20.9k enzyme → site links and 10.8k enzyme → target links; 6.6k of the
+  latter are reported by two or more databases.
+- **Score and effect** come from SIGNOR only. Filtering by score therefore also hides links only
+  KiNet databases report.
+- **Citations:** answers and wiki pages cite a SIGNOR record when there is one
+  (`SIGNOR-277418; PMID …`), otherwise the database and a PMID (`PhosphoSitePlus; PMID …`).
+- **Rebuilds:** the loader stores a dataset version in Neo4j, so the container rebuilds the
+  graph only when a seed file changes.
 
 ## Users and roles
 
@@ -217,12 +241,12 @@ flowchart LR
         Tools["tools/agent_tools.py<br/>vault + graph tools"]
         Web["tools/web.py<br/>URL fetch"]
         Vault["vault/store.py<br/>Vault rules + git"]
-        Graph["graph/signor.py<br/>PhosphoSIGNOR queries"]
+        Graph["graph/<br/>merged graph queries + networks"]
     end
 
     LLM[("Model provider<br/>Groq · Claude · Gemini · Ollama")]
     Disk[("vaults/name/<br/>Markdown + git")]
-    Neo4j[("Neo4j<br/>PhosphoSIGNOR graph")]
+    Neo4j[("Neo4j<br/>PhosphoSIGNOR + KiNet")]
 
     UI -- "/api (JSON, SSE)" --> API
     API --> Chat
@@ -253,7 +277,8 @@ tools, so there is no MCP server, no subprocess and no shell between the model a
 | [`prompts/`](backend/app/prompts/) | `AGENTS.md` (the LLM-Wiki schema and grounding rules) and `skills/{capture,sync,lint,digest,query}/SKILL.md`. One copy for every vault; read on each run. |
 | [`tools/agent_tools.py`](backend/app/tools/agent_tools.py) | The only tools agents get. Read: `read_index`, `list_pages`, `read_page`, `search_pages`, `list_sources`, `read_source`, `read_log`. Write (jobs only): `write_page`, `upsert_index`. Chat only: `load_skill`. Plus the 8 graph tools. Every result is capped at `TOOL_OUTPUT_CHARS`. |
 | [`tools/web.py`](backend/app/tools/web.py) | Fetches a URL for capture (http/https only, private addresses refused, 5 MB cap) and extracts readable Markdown with trafilatura. Called by the API, not by agents. |
-| [`graph/signor.py`](backend/app/graph/signor.py) | Port of the old `signor-graph` MCP server: `search_entities`, `get_entity`, `regulators_of`, `targets_of`, `sites_of`, `find_paths`, `get_evidence`, `graph_overview`. Read-only sessions. |
+| [`graph/signor.py`](backend/app/graph/signor.py), [`graph/network.py`](backend/app/graph/network.py) | Agent tools over the merged graph: `search_entities`, `get_entity`, `regulators_of`, `targets_of`, `sites_of`, `find_paths`, `get_interaction`, `get_evidence`, `graph_overview` (filters: databases, min databases, SIGNOR score). `network.py` builds the networks for the explorer and the chat graphs. Read-only sessions. |
+| [`api/graph.py`](backend/app/api/graph.py), [`pages/GraphPage.tsx`](frontend/src/pages/GraphPage.tsx) | Graph explorer: search, neighbourhood network, interaction detail, legend. Cytoscape.js, loaded only when a network is shown. |
 | [`vault/store.py`](backend/app/vault/store.py) | `Vault`: safe paths, create-only sources, page validation (frontmatter, known sources, citations), index and log editing, mechanical lint, git commit and rollback. `VaultRegistry` creates vaults from `vault/template/`. |
 | [`llm.py`](backend/app/llm.py), [`config.py`](backend/app/config.py) | Model selection from `MODEL` (Groq gets a client that waits out rate limits); settings from `.env`, re-read whenever the file changes. |
 | [`frontend/src/`](frontend/src/) | React SPA. `api.ts` is the API client (including the SSE readers); `components/Markdown.tsx` renders `[[links]]`, `[[source: …]]`, callouts and SIGNOR/PMID links; `pages/` holds one component per tab. |
@@ -393,7 +418,8 @@ changes and wins over the process environment for the keys it defines.
 cd backend && .venv/Scripts/python -m pytest -q
 ```
 
-- `test_graph.py`: the old MCP smoke test, ported. It needs Neo4j and is skipped otherwise.
+- `test_graph.py`, `test_graph_api.py`: graph tools, merged sources, explorer API and chat graphs. They need Neo4j and are skipped otherwise.
+- `test_load_graph.py`: the merged loader and the kinase-group builder, offline on small fixtures.
 - `test_vault.py`: the vault rules (paths, immutability, frontmatter, log, index, lint, git).
 - `test_jobs.py`: capture, lint and sync with a scripted model, so no API key is needed. Covers
   tool-call correction, rollback, output caps and the fact-check/revision loop.
@@ -411,4 +437,4 @@ cd backend && .venv/Scripts/python -m pytest -q
   before exposing it beyond localhost.
 - Jobs and chat history live in memory and are lost on restart; the vault itself is on disk and in git.
 - `search_pages` is a plain substring search. Add SQLite FTS or embeddings once the wiki grows.
-- Not built yet: graph view, scheduled digest, model picker in the UI, and an MCP facade over `app/graph/signor.py`.
+- Not built yet: KEGG pathway and InterPro domain views, scheduled digest, and an MCP facade over `app/graph/signor.py`.

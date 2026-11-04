@@ -14,3 +14,4 @@ vaults/*
 HANDOFF.md
 .claude
 .vscode
+seed/kinase_groups.SOURCE.md

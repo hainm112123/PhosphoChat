@@ -1,7 +1,12 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api, streamChat, type Job } from "../api";
 import { Markdown } from "../components/Markdown";
 import { JobProgress } from "../components/JobProgress";
+import { mergeNetworks } from "../components/networkUtils";
+// Cytoscape is large: load it only when an answer has a network to draw.
+const NetworkView = lazy(() => import("../components/NetworkView").then((m) => ({ default: m.NetworkView })));
+import type { Network } from "../api";
+import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../auth";
 import { useVault } from "../vault";
 
@@ -15,6 +20,7 @@ type Msg = {
   usage?: { requests: number; input_tokens: number; output_tokens: number };
   saveJob?: Job;
   saveError?: string;
+  graphs?: Network[]; // networks from graph tools, drawn under the answer
 };
 type Conversation = { session: string | null; messages: Msg[] };
 
@@ -47,7 +53,9 @@ export function ChatPage() {
   const { vault, pages } = useVault();
   const { isAdmin } = useAuth();
   const conv = useSyncExternalStore(subscribe, () => getConv(vault));
-  const [input, setInput] = useState("");
+  // "Ask in chat" from the Graph explorer pre-fills a question.
+  const location = useLocation();
+  const [input, setInput] = useState<string>((location.state as { prefill?: string } | null)?.prefill ?? "");
   const busy = conv.messages.some((m) => m.pending);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -77,6 +85,8 @@ export function ChatPage() {
             ...m,
             tools: m.tools.map((t) => (t.id === data.id ? { ...t, result: data.content, retry: data.retry } : t)),
           }));
+        else if (event === "graph")
+          patchLast(vault, (m) => ({ ...m, graphs: [...(m.graphs ?? []), { nodes: data.nodes, edges: data.edges }] }));
         else if (event === "done") patchLast(vault, (m) => ({ ...m, pending: false, usage: data.usage }));
         else if (event === "error") patchLast(vault, (m) => ({ ...m, pending: false, error: data.message }));
       });
@@ -148,6 +158,7 @@ export function ChatPage() {
                     {isAdmin && !m.saveJob && <button className="btn btn-small btn-ghost" onClick={() => save(i)}>Save to wiki</button>}
                   </div>
                 )}
+                {m.graphs && m.graphs.length > 0 && <AnswerGraph vault={vault} graphs={m.graphs} />}
                 {m.saveError && <div className="error">Couldn't save to the wiki: {m.saveError}</div>}
                 {m.saveJob && <JobProgress job={m.saveJob} />}
               </div>
@@ -169,6 +180,26 @@ export function ChatPage() {
         />
         <button className="btn" disabled={busy || !input.trim()}>Send</button>
       </form>
+    </div>
+  );
+}
+
+/** The network behind an answer (all graph tool results merged), with a link to explore it. */
+function AnswerGraph({ vault, graphs }: { vault: string; graphs: Network[] }) {
+  const net = mergeNetworks(graphs);
+  if (!net.edges.length) return null;
+  const seeds = net.nodes.filter((n) => n.is_seed).map((n) => n.name);
+  return (
+    <div className="answer-graph">
+      <div className="answer-graph-head muted small">
+        {net.nodes.length} proteins · {net.edges.length} links
+        {seeds.length > 0 && (
+          <Link to={`/${vault}/graph?seeds=${encodeURIComponent(seeds.join(","))}`}>Open in Graph explorer</Link>
+        )}
+      </div>
+      <Suspense fallback={<div className="muted small pulse">Drawing network...</div>}>
+        <NetworkView data={net} height={280} compact />
+      </Suspense>
     </div>
   );
 }

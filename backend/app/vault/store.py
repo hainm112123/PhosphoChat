@@ -96,7 +96,9 @@ def page_links(text: str) -> tuple[set[str], set[str]]:
     return pages, sources
 
 
-CITATION_RE = re.compile(r"\[\[\s*source:|SIGNOR-[A-Z]*\d+|\bPMIDs?\b", re.I)
+# A block is cited by a source note, a SIGNOR record, a PMID, or a KiNet database name
+# (some PhosphoSitePlus/EPSD/iPTMNet links have no PMID).
+CITATION_RE = re.compile(r"\[\[\s*source:|SIGNOR-[A-Z]*\d+|\bPMIDs?\b|\b(PhosphoSitePlus|EPSD|iPTMNet)\b", re.I)
 LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{2,}")
 

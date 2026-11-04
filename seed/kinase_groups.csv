@@ -1,0 +1,471 @@
+uniprot,gene,group,family
+Q6ZMQ8,AATK,TK,Tyr protein kinase family
+P00519,ABL1,TK,"Tyr protein kinase family, ABL subfamily"
+P42684,ABL2,TK,"Tyr protein kinase family, ABL subfamily"
+Q9UM73,ALK,TK,"Tyr protein kinase family, Insulin receptor subfamily"
+P30530,AXL,TK,"Tyr protein kinase family, AXL/UFO subfamily"
+P51451,BLK,TK,"Tyr protein kinase family, SRC subfamily"
+P51813,BMX,TK,"Tyr protein kinase family, TEC subfamily"
+Q06187,BTK,TK,"Tyr protein kinase family, TEC subfamily"
+P07333,CSF1R,TK,"Tyr protein kinase family, CSF-1/PDGF receptor subfamily"
+P41240,CSK,TK,"Tyr protein kinase family, CSK subfamily"
+Q08345,DDR1,TK,"Tyr protein kinase family, Insulin receptor subfamily"
+Q16832,DDR2,TK,"Tyr protein kinase family, Insulin receptor subfamily"
+P00533,EGFR,TK,"Tyr protein kinase family, EGF receptor subfamily"
+P21709,EPHA1,TK,"Tyr protein kinase family, Ephrin receptor subfamily"
+P29317,EPHA2,TK,"Tyr protein kinase family, Ephrin receptor subfamily"
+P29320,EPHA3,TK,"Tyr protein kinase family, Ephrin receptor subfamily"
+P54764,EPHA4,TK,"Tyr protein kinase family, Ephrin receptor subfamily"
+P54756,EPHA5,TK,"Tyr protein kinase family, Ephrin receptor subfamily"
+Q9UF33,EPHA6,TK,"Tyr protein kinase family, Ephrin receptor subfamily"
+Q15375,EPHA7,TK,"Tyr protein kinase family, Ephrin receptor subfamily"
+P29322,EPHA8,TK,"Tyr protein kinase family, Ephrin receptor subfamily"
+P54762,EPHB1,TK,"Tyr protein kinase family, Ephrin receptor subfamily"
+P29323,EPHB2,TK,"Tyr protein kinase family, Ephrin receptor subfamily"
+P54753,EPHB3,TK,"Tyr protein kinase family, Ephrin receptor subfamily"
+P54760,EPHB4,TK,"Tyr protein kinase family, Ephrin receptor subfamily"
+P04626,ERBB2,TK,"Tyr protein kinase family, EGF receptor subfamily"
+P21860,ERBB3,TK,"Tyr protein kinase family, EGF receptor subfamily"
+Q15303,ERBB4,TK,"Tyr protein kinase family, EGF receptor subfamily"
+P16591,FER,TK,"Tyr protein kinase family, Fes/fps subfamily"
+P07332,FES,TK,"Tyr protein kinase family, Fes/fps subfamily"
+P11362,FGFR1,TK,"Tyr protein kinase family, Fibroblast growth factor receptor subfamily"
+P21802,FGFR2,TK,"Tyr protein kinase family, Fibroblast growth factor receptor subfamily"
+P22607,FGFR3,TK,"Tyr protein kinase family, Fibroblast growth factor receptor subfamily"
+P22455,FGFR4,TK,"Tyr protein kinase family, Fibroblast growth factor receptor subfamily"
+P09769,FGR,TK,"Tyr protein kinase family, SRC subfamily"
+P17948,FLT1,TK,"Tyr protein kinase family, CSF-1/PDGF receptor subfamily"
+P36888,FLT3,TK,"Tyr protein kinase family, CSF-1/PDGF receptor subfamily"
+P35916,FLT4,TK,"Tyr protein kinase family, CSF-1/PDGF receptor subfamily"
+P42685,FRK,TK,"Tyr protein kinase family, SRC subfamily"
+P06241,FYN,TK,"Tyr protein kinase family, SRC subfamily"
+P08631,HCK,TK,"Tyr protein kinase family, SRC subfamily"
+P08069,IGF1R,TK,"Tyr protein kinase family, Insulin receptor subfamily"
+P06213,INSR,TK,"Tyr protein kinase family, Insulin receptor subfamily"
+P14616,INSRR,TK,"Tyr protein kinase family, Insulin receptor subfamily"
+Q08881,ITK,TK,"Tyr protein kinase family, TEC subfamily"
+P23458,JAK1,TK,"Tyr protein kinase family, JAK subfamily"
+O60674,JAK2,TK,"Tyr protein kinase family, JAK subfamily"
+P52333,JAK3,TK,"Tyr protein kinase family, JAK subfamily"
+P35968,KDR,TK,"Tyr protein kinase family, CSF-1/PDGF receptor subfamily"
+P10721,KIT,TK,"Tyr protein kinase family, CSF-1/PDGF receptor subfamily"
+P06239,LCK,TK,"Tyr protein kinase family, SRC subfamily"
+Q8IWU2,LMTK2,TK,Tyr protein kinase family
+Q96Q04,LMTK3,TK,Tyr protein kinase family
+P29376,LTK,TK,"Tyr protein kinase family, Insulin receptor subfamily"
+P07948,LYN,TK,"Tyr protein kinase family, SRC subfamily"
+P42679,MATK,TK,"Tyr protein kinase family, CSK subfamily"
+Q12866,MERTK,TK,"Tyr protein kinase family, AXL/UFO subfamily"
+P08581,MET,TK,Tyr protein kinase family
+Q04912,MST1R,TK,Tyr protein kinase family
+O15146,MUSK,TK,Tyr protein kinase family
+P04629,NTRK1,TK,"Tyr protein kinase family, Insulin receptor subfamily"
+Q16620,NTRK2,TK,"Tyr protein kinase family, Insulin receptor subfamily"
+Q16288,NTRK3,TK,"Tyr protein kinase family, Insulin receptor subfamily"
+P16234,PDGFRA,TK,"Tyr protein kinase family, CSF-1/PDGF receptor subfamily"
+P09619,PDGFRB,TK,"Tyr protein kinase family, CSF-1/PDGF receptor subfamily"
+Q05397,PTK2,TK,"Tyr protein kinase family, FAK subfamily"
+Q14289,PTK2B,TK,"Tyr protein kinase family, FAK subfamily"
+Q13882,PTK6,TK,"Tyr protein kinase family, BRK/PTK6/SIK subfamily"
+P07949,RET,TK,Tyr protein kinase family
+Q01974,ROR2,TK,"Tyr protein kinase family, ROR subfamily"
+P08922,ROS1,TK,"Tyr protein kinase family, Insulin receptor subfamily"
+P12931,SRC,TK,"Tyr protein kinase family, SRC subfamily"
+Q9H3Y6,SRMS,TK,"Tyr protein kinase family, SRC subfamily"
+Q6J9G0,STYK1,TK,Tyr protein kinase family
+P43405,SYK,TK,"Tyr protein kinase family, SYK/ZAP-70 subfamily"
+P42680,TEC,TK,"Tyr protein kinase family, TEC subfamily"
+Q02763,TEK,TK,"Tyr protein kinase family, Tie subfamily"
+P35590,TIE1,TK,"Tyr protein kinase family, Tie subfamily"
+Q13470,TNK1,TK,Tyr protein kinase family
+Q07912,TNK2,TK,Tyr protein kinase family
+P42681,TXK,TK,"Tyr protein kinase family, TEC subfamily"
+P29597,TYK2,TK,"Tyr protein kinase family, JAK subfamily"
+Q06418,TYRO3,TK,"Tyr protein kinase family, AXL/UFO subfamily"
+P07947,YES1,TK,"Tyr protein kinase family, SRC subfamily"
+P43403,ZAP70,TK,"Tyr protein kinase family, SYK/ZAP-70 subfamily"
+Q04771,ACVR1,TKL,"TKL Ser/Thr protein kinase family, TGFB receptor subfamily"
+P36896,ACVR1B,TKL,"TKL Ser/Thr protein kinase family, TGFB receptor subfamily"
+Q8NER5,ACVR1C,TKL,"TKL Ser/Thr protein kinase family, TGFB receptor subfamily"
+P27037,ACVR2A,TKL,"TKL Ser/Thr protein kinase family, TGFB receptor subfamily"
+Q13705,ACVR2B,TKL,"TKL Ser/Thr protein kinase family, TGFB receptor subfamily"
+P37023,ACVRL1,TKL,"TKL Ser/Thr protein kinase family, TGFB receptor subfamily"
+Q16671,AMHR2,TKL,"TKL Ser/Thr protein kinase family, TGFB receptor subfamily"
+Q8NFD2,ANKK1,TKL,TKL Ser/Thr protein kinase family
+P10398,ARAF,TKL,"TKL Ser/Thr protein kinase family, RAF subfamily"
+P36894,BMPR1A,TKL,"TKL Ser/Thr protein kinase family, TGFB receptor subfamily"
+O00238,BMPR1B,TKL,"TKL Ser/Thr protein kinase family, TGFB receptor subfamily"
+Q13873,BMPR2,TKL,"TKL Ser/Thr protein kinase family, TGFB receptor subfamily"
+P15056,BRAF,TKL,"TKL Ser/Thr protein kinase family, RAF subfamily"
+P51617,IRAK1,TKL,"TKL Ser/Thr protein kinase family, Pelle subfamily"
+Q9NWZ3,IRAK4,TKL,"TKL Ser/Thr protein kinase family, Pelle subfamily"
+Q8IVT5,KSR1,TKL,TKL Ser/Thr protein kinase family
+Q6VAB6,KSR2,TKL,TKL Ser/Thr protein kinase family
+P53667,LIMK1,TKL,TKL Ser/Thr protein kinase family
+P53671,LIMK2,TKL,TKL Ser/Thr protein kinase family
+Q38SD2,LRRK1,TKL,"TKL Ser/Thr protein kinase family, ROCO subfamily"
+Q5S007,LRRK2,TKL,TKL Ser/Thr protein kinase family
+P04049,RAF1,TKL,"TKL Ser/Thr protein kinase family, RAF subfamily"
+Q13546,RIPK1,TKL,TKL Ser/Thr protein kinase family
+O43353,RIPK2,TKL,TKL Ser/Thr protein kinase family
+Q9Y572,RIPK3,TKL,TKL Ser/Thr protein kinase family
+P57078,RIPK4,TKL,TKL Ser/Thr protein kinase family
+Q15569,TESK1,TKL,TKL Ser/Thr protein kinase family
+Q96S53,TESK2,TKL,TKL Ser/Thr protein kinase family
+P36897,TGFBR1,TKL,"TKL Ser/Thr protein kinase family, TGFB receptor subfamily"
+P37173,TGFBR2,TKL,"TKL Ser/Thr protein kinase family, TGFB receptor subfamily"
+Q59H18,TNNI3K,TKL,"TKL Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+Q02750,MAP2K1,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase subfamily"
+P36507,MAP2K2,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase subfamily"
+P46734,MAP2K3,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase subfamily"
+P45985,MAP2K4,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase subfamily"
+Q13163,MAP2K5,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase subfamily"
+P52564,MAP2K6,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase subfamily"
+O14733,MAP2K7,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase subfamily"
+Q13233,MAP3K1,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+Q02779,MAP3K10,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+Q16584,MAP3K11,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+Q12852,MAP3K12,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+O43283,MAP3K13,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+Q99558,MAP3K14,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+Q6ZN16,MAP3K15,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+Q56UN5,MAP3K19,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q9Y2U5,MAP3K2,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+Q9NYL2,MAP3K20,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+Q5TCX8,MAP3K21,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+Q99759,MAP3K3,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+Q9Y6R4,MAP3K4,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+Q99683,MAP3K5,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+O95382,MAP3K6,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+O43318,MAP3K7,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+P41279,MAP3K8,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+P80192,MAP3K9,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase kinase subfamily"
+Q92918,MAP4K1,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q12851,MAP4K2,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q8IVH8,MAP4K3,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+O95819,MAP4K4,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q9Y4K4,MAP4K5,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q8N4C8,MINK1,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q8NEV4,MYO3A,STE,"TRAFAC class myosin-kinesin ATPase superfamily, Myosin family"
+Q8WXR4,MYO3B,STE,"TRAFAC class myosin-kinesin ATPase superfamily, Myosin family"
+Q7Z2Y5,NRK,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+O95747,OXSR1,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q13153,PAK1,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q13177,PAK2,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+O75914,PAK3,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+O96013,PAK4,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q9P286,PAK5,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q9NQU5,PAK6,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q96KB5,PBK,STE,"STE Ser/Thr protein kinase family, MAP kinase kinase subfamily"
+Q9H2G2,SLK,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+O94804,STK10,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q9Y6E0,STK24,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+O00506,STK25,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q9P289,STK26,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q13188,STK3,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q9UEW8,STK39,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q13043,STK4,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q7L7X3,TAOK1,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q9UL54,TAOK2,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q9H2K8,TAOK3,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+Q9UKE5,TNIK,STE,"STE Ser/Thr protein kinase family, STE20 subfamily"
+P48729,CSNK1A1,CK1,"CK1 Ser/Thr protein kinase family, Casein kinase I subfamily"
+Q8N752,CSNK1A1L,CK1,"CK1 Ser/Thr protein kinase family, Casein kinase I subfamily"
+P48730,CSNK1D,CK1,"CK1 Ser/Thr protein kinase family, Casein kinase I subfamily"
+P49674,CSNK1E,CK1,"CK1 Ser/Thr protein kinase family, Casein kinase I subfamily"
+Q9HCP0,CSNK1G1,CK1,"CK1 Ser/Thr protein kinase family, Casein kinase I subfamily"
+P78368,CSNK1G2,CK1,"CK1 Ser/Thr protein kinase family, Casein kinase I subfamily"
+Q9Y6M4,CSNK1G3,CK1,"CK1 Ser/Thr protein kinase family, Casein kinase I subfamily"
+Q5TCY1,TTBK1,CK1,CK1 Ser/Thr protein kinase family
+Q6IQ55,TTBK2,CK1,CK1 Ser/Thr protein kinase family
+Q99986,VRK1,CK1,"CK1 Ser/Thr protein kinase family, VRK subfamily"
+Q86Y07,VRK2,CK1,"CK1 Ser/Thr protein kinase family, VRK subfamily"
+P31749,AKT1,AGC,"AGC Ser/Thr protein kinase family, RAC subfamily"
+P31751,AKT2,AGC,"AGC Ser/Thr protein kinase family, RAC subfamily"
+Q9Y243,AKT3,AGC,"AGC Ser/Thr protein kinase family, RAC subfamily"
+Q5VT25,CDC42BPA,AGC,"AGC Ser/Thr protein kinase family, DMPK subfamily"
+Q9Y5S2,CDC42BPB,AGC,"AGC Ser/Thr protein kinase family, DMPK subfamily"
+Q6DT37,CDC42BPG,AGC,"AGC Ser/Thr protein kinase family, DMPK subfamily"
+O14578,CIT,AGC,AGC Ser/Thr protein kinase family
+Q09013,DMPK,AGC,"AGC Ser/Thr protein kinase family, DMPK subfamily"
+Q15835,GRK1,AGC,"AGC Ser/Thr protein kinase family, GPRK subfamily"
+P25098,GRK2,AGC,"AGC Ser/Thr protein kinase family, GPRK subfamily"
+P35626,GRK3,AGC,"AGC Ser/Thr protein kinase family, GPRK subfamily"
+P32298,GRK4,AGC,"AGC Ser/Thr protein kinase family, GPRK subfamily"
+P34947,GRK5,AGC,"AGC Ser/Thr protein kinase family, GPRK subfamily"
+P43250,GRK6,AGC,"AGC Ser/Thr protein kinase family, GPRK subfamily"
+Q8WTQ7,GRK7,AGC,"AGC Ser/Thr protein kinase family, GPRK subfamily"
+O95835,LATS1,AGC,AGC Ser/Thr protein kinase family
+Q9NRM7,LATS2,AGC,AGC Ser/Thr protein kinase family
+Q9Y2H9,MAST1,AGC,AGC Ser/Thr protein kinase family
+Q6P0Q8,MAST2,AGC,AGC Ser/Thr protein kinase family
+O60307,MAST3,AGC,AGC Ser/Thr protein kinase family
+O15021,MAST4,AGC,AGC Ser/Thr protein kinase family
+Q96GX5,MASTL,AGC,AGC Ser/Thr protein kinase family
+O15530,PDPK1,AGC,"AGC Ser/Thr protein kinase family, PDPK1 subfamily"
+Q6A1A2,PDPK2P,AGC,"AGC Ser/Thr protein kinase family, PDPK1 subfamily"
+Q16512,PKN1,AGC,"AGC Ser/Thr protein kinase family, PKC subfamily"
+Q16513,PKN2,AGC,"AGC Ser/Thr protein kinase family, PKC subfamily"
+Q6P5Z2,PKN3,AGC,"AGC Ser/Thr protein kinase family, PKC subfamily"
+P17612,PRKACA,AGC,"AGC Ser/Thr protein kinase family, cAMP subfamily"
+P22694,PRKACB,AGC,"AGC Ser/Thr protein kinase family, cAMP subfamily"
+P22612,PRKACG,AGC,"AGC Ser/Thr protein kinase family, cAMP subfamily"
+P17252,PRKCA,AGC,"AGC Ser/Thr protein kinase family, PKC subfamily"
+P05771,PRKCB,AGC,"AGC Ser/Thr protein kinase family, PKC subfamily"
+Q05655,PRKCD,AGC,"AGC Ser/Thr protein kinase family, PKC subfamily"
+Q02156,PRKCE,AGC,"AGC Ser/Thr protein kinase family, PKC subfamily"
+P05129,PRKCG,AGC,"AGC Ser/Thr protein kinase family, PKC subfamily"
+P24723,PRKCH,AGC,"AGC Ser/Thr protein kinase family, PKC subfamily"
+P41743,PRKCI,AGC,"AGC Ser/Thr protein kinase family, PKC subfamily"
+Q04759,PRKCQ,AGC,"AGC Ser/Thr protein kinase family, PKC subfamily"
+Q05513,PRKCZ,AGC,"AGC Ser/Thr protein kinase family, PKC subfamily"
+Q13976,PRKG1,AGC,"AGC Ser/Thr protein kinase family, cGMP subfamily"
+Q13237,PRKG2,AGC,"AGC Ser/Thr protein kinase family, cGMP subfamily"
+P51817,PRKX,AGC,"AGC Ser/Thr protein kinase family, cAMP subfamily"
+Q13464,ROCK1,AGC,AGC Ser/Thr protein kinase family
+O75116,ROCK2,AGC,AGC Ser/Thr protein kinase family
+Q15418,RPS6KA1,AGC,"AGC Ser/Thr protein kinase family, S6 kinase subfamily"
+Q15349,RPS6KA2,AGC,"AGC Ser/Thr protein kinase family, S6 kinase subfamily"
+P51812,RPS6KA3,AGC,"AGC Ser/Thr protein kinase family, S6 kinase subfamily"
+O75676,RPS6KA4,AGC,"AGC Ser/Thr protein kinase family, S6 kinase subfamily"
+O75582,RPS6KA5,AGC,"AGC Ser/Thr protein kinase family, S6 kinase subfamily"
+Q9UK32,RPS6KA6,AGC,"AGC Ser/Thr protein kinase family, S6 kinase subfamily"
+P23443,RPS6KB1,AGC,"AGC Ser/Thr protein kinase family, S6 kinase subfamily"
+Q9UBS0,RPS6KB2,AGC,"AGC Ser/Thr protein kinase family, S6 kinase subfamily"
+O00141,SGK1,AGC,AGC Ser/Thr protein kinase family
+Q9HBY8,SGK2,AGC,AGC Ser/Thr protein kinase family
+Q96BR1,SGK3,AGC,AGC Ser/Thr protein kinase family
+Q15208,STK38,AGC,AGC Ser/Thr protein kinase family
+Q9Y2H1,STK38L,AGC,AGC Ser/Thr protein kinase family
+Q8TDC3,BRSK1,CAMK,"CAMK Ser/Thr protein kinase family, SNF1 subfamily"
+Q8IWQ3,BRSK2,CAMK,"CAMK Ser/Thr protein kinase family, SNF1 subfamily"
+Q14012,CAMK1,CAMK,"CAMK Ser/Thr protein kinase family, CaMK subfamily"
+Q8IU85,CAMK1D,CAMK,"CAMK Ser/Thr protein kinase family, CaMK subfamily"
+Q96NX5,CAMK1G,CAMK,"CAMK Ser/Thr protein kinase family, CaMK subfamily"
+Q9UQM7,CAMK2A,CAMK,"CAMK Ser/Thr protein kinase family, CaMK subfamily"
+Q13554,CAMK2B,CAMK,"CAMK Ser/Thr protein kinase family, CaMK subfamily"
+Q13557,CAMK2D,CAMK,"CAMK Ser/Thr protein kinase family, CaMK subfamily"
+Q13555,CAMK2G,CAMK,"CAMK Ser/Thr protein kinase family, CaMK subfamily"
+Q16566,CAMK4,CAMK,"CAMK Ser/Thr protein kinase family, CaMK subfamily"
+O14936,CASK,CAMK,"CAMK Ser/Thr protein kinase family, CaMK subfamily"
+O14757,CHEK1,CAMK,"CAMK Ser/Thr protein kinase family, NIM1 subfamily"
+O96017,CHEK2,CAMK,"CAMK Ser/Thr protein kinase family, CHK2 subfamily"
+P53355,DAPK1,CAMK,"CAMK Ser/Thr protein kinase family, DAP kinase subfamily"
+Q9UIK4,DAPK2,CAMK,"CAMK Ser/Thr protein kinase family, DAP kinase subfamily"
+O43293,DAPK3,CAMK,"CAMK Ser/Thr protein kinase family, DAP kinase subfamily"
+O15075,DCLK1,CAMK,"CAMK Ser/Thr protein kinase family, CaMK subfamily"
+Q8N568,DCLK2,CAMK,"CAMK Ser/Thr protein kinase family, CaMK subfamily"
+Q9C098,DCLK3,CAMK,"CAMK Ser/Thr protein kinase family, CaMK subfamily"
+P57058,HUNK,CAMK,"CAMK Ser/Thr protein kinase family, SNF1 subfamily"
+O60229,KALRN,CAMK,CAMK Ser/Thr protein kinase family
+P49137,MAPKAPK2,CAMK,CAMK Ser/Thr protein kinase family
+Q16644,MAPKAPK3,CAMK,CAMK Ser/Thr protein kinase family
+Q8IW41,MAPKAPK5,CAMK,CAMK Ser/Thr protein kinase family
+Q9P0L2,MARK1,CAMK,"CAMK Ser/Thr protein kinase family, SNF1 subfamily"
+Q7KZI7,MARK2,CAMK,"CAMK Ser/Thr protein kinase family, SNF1 subfamily"
+P27448,MARK3,CAMK,"CAMK Ser/Thr protein kinase family, SNF1 subfamily"
+Q96L34,MARK4,CAMK,"CAMK Ser/Thr protein kinase family, SNF1 subfamily"
+Q14680,MELK,CAMK,"CAMK Ser/Thr protein kinase family, SNF1 subfamily"
+Q9BUB5,MKNK1,CAMK,CAMK Ser/Thr protein kinase family
+Q9HBH9,MKNK2,CAMK,CAMK Ser/Thr protein kinase family
+Q15746,MYLK,CAMK,CAMK Ser/Thr protein kinase family
+Q9H1R3,MYLK2,CAMK,CAMK Ser/Thr protein kinase family
+Q32MK0,MYLK3,CAMK,CAMK Ser/Thr protein kinase family
+Q86YV6,MYLK4,CAMK,CAMK Ser/Thr protein kinase family
+Q8IY84,NIM1K,CAMK,CAMK Ser/Thr protein kinase family
+O60285,NUAK1,CAMK,"CAMK Ser/Thr protein kinase family, SNF1 subfamily"
+Q9H093,NUAK2,CAMK,"CAMK Ser/Thr protein kinase family, SNF1 subfamily"
+Q5VST9,OBSCN,CAMK,CAMK Ser/Thr protein kinase family
+Q96RG2,PASK,CAMK,CAMK Ser/Thr protein kinase family
+Q16816,PHKG1,CAMK,CAMK Ser/Thr protein kinase family
+P15735,PHKG2,CAMK,CAMK Ser/Thr protein kinase family
+P11309,PIM1,CAMK,"CAMK Ser/Thr protein kinase family, PIM subfamily"
+Q9P1W9,PIM2,CAMK,"CAMK Ser/Thr protein kinase family, PIM subfamily"
+Q86V86,PIM3,CAMK,"CAMK Ser/Thr protein kinase family, PIM subfamily"
+Q6P2M8,PNCK,CAMK,"CAMK Ser/Thr protein kinase family, CaMK subfamily"
+Q13131,PRKAA1,CAMK,"CAMK Ser/Thr protein kinase family, SNF1 subfamily"
+P54646,PRKAA2,CAMK,"CAMK Ser/Thr protein kinase family, SNF1 subfamily"
+Q15139,PRKD1,CAMK,"CAMK Ser/Thr protein kinase family, PKD subfamily"
+Q9BZL6,PRKD2,CAMK,"CAMK Ser/Thr protein kinase family, PKD subfamily"
+O94806,PRKD3,CAMK,"CAMK Ser/Thr protein kinase family, PKD subfamily"
+P11801,PSKH1,CAMK,CAMK Ser/Thr protein kinase family
+Q96QS6,PSKH2,CAMK,CAMK Ser/Thr protein kinase family
+P57059,SIK1,CAMK,"CAMK Ser/Thr protein kinase family, AMPK subfamily"
+Q9H0K1,SIK2,CAMK,"CAMK Ser/Thr protein kinase family, SNF1 subfamily"
+Q9Y2K2,SIK3,CAMK,"CAMK Ser/Thr protein kinase family, SNF1 subfamily"
+Q9NRH2,SNRK,CAMK,CAMK Ser/Thr protein kinase family
+Q15772,SPEG,CAMK,CAMK Ser/Thr protein kinase family
+Q15831,STK11,CAMK,"CAMK Ser/Thr protein kinase family, LKB1 subfamily"
+Q9UEE5,STK17A,CAMK,"CAMK Ser/Thr protein kinase family, DAP kinase subfamily"
+O94768,STK17B,CAMK,"CAMK Ser/Thr protein kinase family, DAP kinase subfamily"
+Q9BYT3,STK33,CAMK,"CAMK Ser/Thr protein kinase family, CaMK subfamily"
+Q8N2I9,STK40,CAMK,CAMK Ser/Thr protein kinase family
+O75962,TRIO,CAMK,CAMK Ser/Thr protein kinase family
+Q9BXA7,TSSK1B,CAMK,CAMK Ser/Thr protein kinase family
+Q96PF2,TSSK2,CAMK,CAMK Ser/Thr protein kinase family
+Q96PN8,TSSK3,CAMK,CAMK Ser/Thr protein kinase family
+Q6SA08,TSSK4,CAMK,CAMK Ser/Thr protein kinase family
+Q9BXA6,TSSK6,CAMK,CAMK Ser/Thr protein kinase family
+Q8WZ42,TTN,CAMK,CAMK Ser/Thr protein kinase family
+P06493,CDK1,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q15131,CDK10,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q9UQ88,CDK11A,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+P21127,CDK11B,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q9NYV4,CDK12,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q14004,CDK13,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+O94921,CDK14,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q96Q40,CDK15,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q00536,CDK16,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q00537,CDK17,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q07002,CDK18,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q9BWU1,CDK19,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+P24941,CDK2,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q8IZL9,CDK20,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q00526,CDK3,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+P11802,CDK4,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q00535,CDK5,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q00534,CDK6,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+P50613,CDK7,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+P49336,CDK8,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+P50750,CDK9,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q00532,CDKL1,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q92772,CDKL2,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q8IVW4,CDKL3,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q5MAI5,CDKL4,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+O76039,CDKL5,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q9UPZ9,CILK1,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+P49759,CLK1,CMGC,"CMGC Ser/Thr protein kinase family, Lammer subfamily"
+P49760,CLK2,CMGC,"CMGC Ser/Thr protein kinase family, Lammer subfamily"
+P49761,CLK3,CMGC,"CMGC Ser/Thr protein kinase family, Lammer subfamily"
+Q9HAZ1,CLK4,CMGC,"CMGC Ser/Thr protein kinase family, Lammer subfamily"
+P68400,CSNK2A1,CMGC,"Ser/Thr protein kinase family, CK2 subfamily"
+P19784,CSNK2A2,CMGC,"Ser/Thr protein kinase family, CK2 subfamily"
+Q8NEV1,CSNK2A3,CMGC,"Ser/Thr protein kinase family, CK2 subfamily"
+Q13627,DYRK1A,CMGC,"CMGC Ser/Thr protein kinase family, MNB/DYRK subfamily"
+Q9Y463,DYRK1B,CMGC,"CMGC Ser/Thr protein kinase family, MNB/DYRK subfamily"
+Q92630,DYRK2,CMGC,"CMGC Ser/Thr protein kinase family, MNB/DYRK subfamily"
+O43781,DYRK3,CMGC,"CMGC Ser/Thr protein kinase family, MNB/DYRK subfamily"
+Q9NR20,DYRK4,CMGC,"CMGC Ser/Thr protein kinase family, MNB/DYRK subfamily"
+P49840,GSK3A,CMGC,"CMGC Ser/Thr protein kinase family, GSK-3 subfamily"
+P49841,GSK3B,CMGC,"CMGC Ser/Thr protein kinase family, GSK-3 subfamily"
+Q86Z02,HIPK1,CMGC,"CMGC Ser/Thr protein kinase family, HIPK subfamily"
+Q9H2X6,HIPK2,CMGC,"CMGC Ser/Thr protein kinase family, HIPK subfamily"
+Q9H422,HIPK3,CMGC,"CMGC Ser/Thr protein kinase family, HIPK subfamily"
+Q8NE63,HIPK4,CMGC,"CMGC Ser/Thr protein kinase family, HIPK subfamily"
+P20794,MAK,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+P28482,MAPK1,CMGC,"CMGC Ser/Thr protein kinase family, MAP kinase subfamily"
+P53779,MAPK10,CMGC,"CMGC Ser/Thr protein kinase family, MAP kinase subfamily"
+Q15759,MAPK11,CMGC,"CMGC Ser/Thr protein kinase family, MAP kinase subfamily"
+P53778,MAPK12,CMGC,"CMGC Ser/Thr protein kinase family, MAP kinase subfamily"
+O15264,MAPK13,CMGC,"CMGC Ser/Thr protein kinase family, MAP kinase subfamily"
+Q16539,MAPK14,CMGC,"CMGC Ser/Thr protein kinase family, MAP kinase subfamily"
+Q8TD08,MAPK15,CMGC,"CMGC Ser/Thr protein kinase family, MAP kinase subfamily"
+P27361,MAPK3,CMGC,"CMGC Ser/Thr protein kinase family, MAP kinase subfamily"
+P31152,MAPK4,CMGC,"CMGC Ser/Thr protein kinase family, MAP kinase subfamily"
+Q16659,MAPK6,CMGC,"CMGC Ser/Thr protein kinase family, MAP kinase subfamily"
+Q13164,MAPK7,CMGC,"CMGC Ser/Thr protein kinase family, MAP kinase subfamily"
+P45983,MAPK8,CMGC,"CMGC Ser/Thr protein kinase family, MAP kinase subfamily"
+P45984,MAPK9,CMGC,"CMGC Ser/Thr protein kinase family, MAP kinase subfamily"
+Q9UQ07,MOK,CMGC,"CMGC Ser/Thr protein kinase family, CDC2/CDKX subfamily"
+Q9UBE8,NLK,CMGC,"CMGC Ser/Thr protein kinase family, MAP kinase subfamily"
+Q13523,PRP4K,CMGC,CMGC Ser/Thr protein kinase family
+Q96SB4,SRPK1,CMGC,CMGC Ser/Thr protein kinase family
+P78362,SRPK2,CMGC,CMGC Ser/Thr protein kinase family
+Q9UPE1,SRPK3,CMGC,CMGC Ser/Thr protein kinase family
+Q86TW2,ADCK1,Atypical,ADCK protein kinase family
+Q7Z695,ADCK2,Atypical,ADCK protein kinase family
+Q3MIX3,ADCK5,Atypical,ADCK protein kinase family
+Q96QP1,ALPK1,Atypical,"Alpha-type protein kinase family, ALPK subfamily"
+Q86TB3,ALPK2,Atypical,"Alpha-type protein kinase family, ALPK subfamily"
+Q96L96,ALPK3,Atypical,"Alpha-type protein kinase family, ALPK subfamily"
+Q13315,ATM,Atypical,"PI3/PI4-kinase family, ATM subfamily"
+Q13535,ATR,Atypical,"PI3/PI4-kinase family, ATM subfamily"
+Q9UIG0,BAZ1B,Atypical,"WAL family, BAZ1B subfamily"
+O14874,BCKDK,Atypical,PDK/BCKDK protein kinase family
+Q8NI60,COQ8A,Atypical,ADCK protein kinase family
+Q96D53,COQ8B,Atypical,ADCK protein kinase family
+O00418,EEF2K,Atypical,Alpha-type protein kinase family
+P42345,MTOR,Atypical,PI3/PI4-kinase family
+Q15118,PDK1,Atypical,PDK/BCKDK protein kinase family
+Q15119,PDK2,Atypical,PDK/BCKDK protein kinase family
+Q15120,PDK3,Atypical,PDK/BCKDK protein kinase family
+Q16654,PDK4,Atypical,PDK/BCKDK protein kinase family
+P78527,PRKDC,Atypical,PI3/PI4-kinase family
+Q9BRS2,RIOK1,Atypical,RIO-type Ser/Thr kinase family
+Q9BVS4,RIOK2,Atypical,RIO-type Ser/Thr kinase family
+O14730,RIOK3,Atypical,RIO-type Ser/Thr kinase family
+Q96Q15,SMG1,Atypical,PI3/PI4-kinase family
+P21675,TAF1,Atypical,TAF1 family
+Q96S44,TP53RK,Atypical,BUD32 family
+Q9BX84,TRPM6,Atypical,"Alpha-type protein kinase family, ALPK subfamily"
+Q96QT4,TRPM7,Atypical,"Alpha-type protein kinase family, ALPK subfamily"
+Q2M2I8,AAK1,Other,Ser/Thr protein kinase family
+O14965,AURKA,Other,"Ser/Thr protein kinase family, Aurora subfamily"
+Q96GD4,AURKB,Other,"Ser/Thr protein kinase family, Aurora subfamily"
+Q9UQB9,AURKC,Other,"Ser/Thr protein kinase family, Aurora subfamily"
+Q9NSY1,BMP2K,Other,Ser/Thr protein kinase family
+O43683,BUB1,Other,"Ser/Thr protein kinase family, BUB1 subfamily"
+O60566,BUB1B,Other,"Ser/Thr protein kinase family, BUB1 subfamily"
+Q8N5S9,CAMKK1,Other,Ser/Thr protein kinase family
+Q96RR4,CAMKK2,Other,Ser/Thr protein kinase family
+O00311,CDC7,Other,"Ser/Thr protein kinase family, CDC7 subfamily"
+O15111,CHUK,Other,"Ser/Thr protein kinase family, I-kappa-B kinase subfamily"
+Q6XUX3,DSTYK,Other,Ser/Thr protein kinase family
+Q9BQI3,EIF2AK1,Other,"Ser/Thr protein kinase family, GCN2 subfamily"
+P19525,EIF2AK2,Other,"Ser/Thr protein kinase family, GCN2 subfamily"
+Q9NZJ5,EIF2AK3,Other,"Ser/Thr protein kinase family, GCN2 subfamily"
+Q9P2K8,EIF2AK4,Other,"Ser/Thr protein kinase family, GCN2 subfamily"
+O75460,ERN1,Other,Ser/Thr protein kinase family
+Q76MJ5,ERN2,Other,Ser/Thr protein kinase family
+O14976,GAK,Other,Ser/Thr protein kinase family
+Q8TF76,HASPIN,Other,"Ser/Thr protein kinase family, Haspin subfamily"
+O14920,IKBKB,Other,"Ser/Thr protein kinase family, I-kappa-B kinase subfamily"
+Q14164,IKBKE,Other,"Ser/Thr protein kinase family, I-kappa-B kinase subfamily"
+P00540,MOS,Other,Ser/Thr protein kinase family
+Q96PY6,NEK1,Other,"NEK Ser/Thr protein kinase family, NIMA subfamily"
+Q6ZWH5,NEK10,Other,"NEK Ser/Thr protein kinase family, NIMA subfamily"
+Q8NG66,NEK11,Other,"NEK Ser/Thr protein kinase family, NIMA subfamily"
+P51955,NEK2,Other,"NEK Ser/Thr protein kinase family, NIMA subfamily"
+P51956,NEK3,Other,"NEK Ser/Thr protein kinase family, NIMA subfamily"
+P51957,NEK4,Other,"NEK Ser/Thr protein kinase family, NIMA subfamily"
+Q6P3R8,NEK5,Other,"NEK Ser/Thr protein kinase family, NIMA subfamily"
+Q9HC98,NEK6,Other,"NEK Ser/Thr protein kinase family, NIMA subfamily"
+Q8TDX7,NEK7,Other,"NEK Ser/Thr protein kinase family, NIMA subfamily"
+Q86SG6,NEK8,Other,"NEK Ser/Thr protein kinase family, NIMA subfamily"
+Q8TD19,NEK9,Other,"NEK Ser/Thr protein kinase family, NIMA subfamily"
+Q8N165,PDIK1L,Other,Ser/Thr protein kinase family
+Q99570,PIK3R4,Other,Ser/Thr protein kinase family
+Q9BXM7,PINK1,Other,Ser/Thr protein kinase family
+Q504Y2,PKDCC,Other,
+Q99640,PKMYT1,Other,"Ser/Thr protein kinase family, WEE1 subfamily"
+P53350,PLK1,Other,"Ser/Thr protein kinase family, CDC5/Polo subfamily"
+Q9NYY3,PLK2,Other,"Ser/Thr protein kinase family, CDC5/Polo subfamily"
+Q9H4B4,PLK3,Other,"Ser/Thr protein kinase family, CDC5/Polo subfamily"
+O00444,PLK4,Other,"Ser/Thr protein kinase family, CDC5/Polo subfamily"
+Q9H5K3,POMK,Other,"Ser/Thr protein kinase family, STKL subfamily"
+Q9Y6S9,RPS6KL1,Other,"Ser/Thr protein kinase family, S6 kinase subfamily"
+Q96LW2,RSKR,Other,Ser/Thr protein kinase family
+Q52WX2,SBK1,Other,Ser/Thr protein kinase family
+P0C263,SBK2,Other,"Ser/Thr protein kinase family, STKL subfamily"
+P0C264,SBK3,Other,"Ser/Thr protein kinase family, STKL subfamily"
+O75716,STK16,Other,Ser/Thr protein kinase family
+Q9BXU1,STK31,Other,Ser/Thr protein kinase family
+Q8WU08,STK32A,Other,Ser/Thr protein kinase family
+Q9NY57,STK32B,Other,Ser/Thr protein kinase family
+Q86UX6,STK32C,Other,Ser/Thr protein kinase family
+Q8TDR2,STK35,Other,Ser/Thr protein kinase family
+Q9NRP7,STK36,Other,Ser/Thr protein kinase family
+Q9UHD2,TBK1,Other,"Ser/Thr protein kinase family, I-kappa-B kinase subfamily"
+Q9UKI8,TLK1,Other,Ser/Thr protein kinase family
+Q86UE8,TLK2,Other,Ser/Thr protein kinase family
+P33981,TTK,Other,Ser/Thr protein kinase family
+Q8TAS1,UHMK1,Other,Ser/Thr protein kinase family
+O75385,ULK1,Other,"Ser/Thr protein kinase family, APG1/unc-51/ULK1 subfamily"
+Q8IYT8,ULK2,Other,"Ser/Thr protein kinase family, APG1/unc-51/ULK1 subfamily"
+Q6PHR2,ULK3,Other,"Ser/Thr protein kinase family, APG1/unc-51/ULK1 subfamily"
+P30291,WEE1,Other,"Ser/Thr protein kinase family, WEE1 subfamily"
+P0C1S8,WEE2,Other,"Ser/Thr protein kinase family, WEE1 subfamily"
+Q9H4A3,WNK1,Other,"Ser/Thr protein kinase family, WNK subfamily"
+Q9Y3S1,WNK2,Other,"Ser/Thr protein kinase family, WNK subfamily"
+Q9BYP7,WNK3,Other,"Ser/Thr protein kinase family, WNK subfamily"
+Q96J92,WNK4,Other,"Ser/Thr protein kinase family, WNK subfamily"

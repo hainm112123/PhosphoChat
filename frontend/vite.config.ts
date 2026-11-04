@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  // Cytoscape (~500 kB) is split into its own chunk and only loaded when a network is shown.
+  build: { chunkSizeWarningLimit: 600 },
   server: {
     port: 5173,
     // changeOrigin keeps Host = localhost:8000; the browser's Origin header stays

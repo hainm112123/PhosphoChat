@@ -246,7 +246,7 @@ async def _agent_turn(prompt: str, deps: JobContext, model: str | None, emit: Em
         if ev["type"] == "result":
             report, messages = ev["output"], ev["messages"]
             await emit({"type": "usage", **ev["usage"]})
-        else:
+        elif ev["type"] != "graph":  # networks are for chat answers, not job logs
             await emit(ev)
     assert report is not None
     return report, messages

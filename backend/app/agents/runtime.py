@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import AsyncIterator, Sequence
@@ -19,6 +20,7 @@ from pydantic_ai.messages import (
     TextPartDelta,
 )
 
+from app.graph.network import GRAPH_TOOLS, from_tool_result
 from app.llm import Role, connection_hint, get_model, model_settings
 
 PREVIEW_CHARS = 1500
@@ -27,6 +29,16 @@ PREVIEW_CHARS = 1500
 def _preview(content: Any) -> str:
     text = content if isinstance(content, str) else json.dumps(content, default=str)
     return text if len(text) <= PREVIEW_CHARS else text[:PREVIEW_CHARS] + " ..."
+
+
+async def _graph_event(tool: str, content: Any) -> dict | None:
+    """A network for the chat UI from a graph tool's full result (not the short preview).
+    Never fails the run: a result that can't be drawn just yields no graph."""
+    try:
+        data = json.loads(content) if isinstance(content, str) else content
+        return await asyncio.to_thread(from_tool_result, tool, data)
+    except Exception:  # noqa: BLE001 - truncated JSON, database hiccup...
+        return None
 
 
 class JobFailed(Exception):
@@ -86,6 +98,10 @@ async def stream_run(agent: Agent, prompt: str, *, deps: Any, request_limit: int
                 yield {"type": "tool_result", "id": part.tool_call_id, "name": part.tool_name,
                        "retry": retry,
                        "content": _preview(part.model_response() if retry else part.content)}
+                if not retry and part.tool_name in GRAPH_TOOLS:
+                    graph = await _graph_event(part.tool_name, part.content)
+                    if graph:
+                        yield {"type": "graph", "id": part.tool_call_id, "tool": part.tool_name, **graph}
             elif isinstance(ev, AgentRunResultEvent):
                 usage = ev.result.usage
                 yield {"type": "result", "output": ev.result.output,

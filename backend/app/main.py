@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException  # noqa: E402
 from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
-from app.api import auth, chat, jobs, models, vaults, wiki  # noqa: E402
+from app.api import auth, chat, graph, jobs, models, vaults, wiki  # noqa: E402
 from app.api.deps import registry  # noqa: E402
 from app.auth.deps import SameOriginMiddleware, auth_store  # noqa: E402
 from app.config import REPO_ROOT, get_settings  # noqa: E402
@@ -61,7 +61,7 @@ def _startup_report(has_admin: bool) -> None:
 
 app = FastAPI(title="PhosphoChat", lifespan=lifespan)
 app.add_middleware(SameOriginMiddleware)
-for r in (auth.router, vaults.router, wiki.router, jobs.router, chat.router, models.router):
+for r in (auth.router, vaults.router, wiki.router, jobs.router, chat.router, models.router, graph.router):
     app.include_router(r)
 
 # Serve the built frontend (npm run build) from the same origin when it exists;

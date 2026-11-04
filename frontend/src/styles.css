@@ -301,3 +301,52 @@ table.users tr.is-disabled td { color: var(--muted); }
   .list { max-height: 30vh; border-right: 0; border-bottom: 1px solid var(--border); }
   .doc, .page, .chat { padding-left: 16px; padding-right: 16px; }
 }
+
+/* graph explorer */
+.graph-page { display: grid; grid-template-columns: 290px 1fr auto; height: 100%; min-height: 0; }
+.graph-side { border-right: 1px solid var(--border); overflow: auto; padding: 18px 16px; display: grid; gap: 14px; align-content: start; }
+.graph-side h1 { margin: 0; }
+.graph-side p { margin: 0; }
+.graph-side fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; }
+.graph-side legend { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+.row-label { display: grid; gap: 3px; font-size: 13px; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13.5px; }
+.check input { width: auto; }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.seg button { font: inherit; font-size: 13px; border: 0; background: var(--panel); color: var(--text); padding: 6px 4px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.seed-picker { position: relative; display: grid; gap: 6px; }
+.seed-picker .chips { margin: 0; }
+.seed-picker .chip .link-btn { margin-left: 4px; font-size: 14px; line-height: 1; }
+.suggest { position: absolute; top: 100%; left: 0; right: 0; z-index: 30; list-style: none; margin: 4px 0 0; padding: 4px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 15%, transparent); }
+.suggest button { display: block; width: 100%; text-align: left; font: inherit; background: none; border: 0; padding: 6px 8px; border-radius: 6px; cursor: pointer; color: var(--text); }
+.suggest button:hover, .suggest button:focus-visible { background: var(--accent-soft); outline: none; }
+.legend { display: grid; gap: 4px; font-size: 12.5px; }
+.legend-item { display: flex; align-items: center; gap: 7px; }
+.legend-item i { width: 11px; height: 11px; border-radius: 50%; flex: none; }
+.legend-item b { width: 16px; height: 3px; border-radius: 2px; flex: none; }
+.export { display: flex; gap: 8px; flex-wrap: wrap; }
+.graph-main { min-width: 0; display: flex; flex-direction: column; padding: 10px 12px; }
+.graph-status { display: flex; gap: 12px; align-items: center; padding: 0 4px 6px; }
+.network-view { width: 100%; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+.graph-detail { width: 340px; border-left: 1px solid var(--border); overflow: auto; padding: 16px; position: relative; }
+.graph-detail .close { position: absolute; top: 10px; right: 14px; font-size: 20px; }
+.detail h2 { display: flex; align-items: center; gap: 8px; margin: 0 24px 10px 0; font-size: 17px; }
+.detail .swatch { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.detail dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13.5px; margin: 0 0 12px; }
+.detail dt { color: var(--muted); }
+.detail dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.detail-actions { display: flex; gap: 8px; }
+table.records { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.records th, table.records td { text-align: left; vertical-align: top; padding: 6px 6px; border-bottom: 1px solid var(--border); }
+table.records th { font-size: 11.5px; text-transform: uppercase; color: var(--muted); letter-spacing: .03em; }
+.answer-graph { margin-top: 10px; }
+.answer-graph-head { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+@media (max-width: 1000px) {
+  .graph-page { grid-template-columns: 1fr; grid-template-rows: auto auto auto; height: auto; }
+  .graph-side { border-right: 0; border-bottom: 1px solid var(--border); }
+  .graph-detail { width: auto; border-left: 0; border-top: 1px solid var(--border); }
+  .graph-main .network-view { height: 70vh !important; }
+}

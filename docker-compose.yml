@@ -28,12 +28,13 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  # Fills Neo4j from the bundled PhosphoSIGNOR TSV the first time, then exits.
-  # Later starts see a non-empty graph and skip.
+  # Fills Neo4j from seed/ (PhosphoSIGNOR + KiNet + kinase groups), then exits.
+  # Later starts skip unless the seed files changed.
   graph-loader:
     image: phosphochat:latest
     build: .
-    command: ["python", "scripts/load_signor.py", "--file", "/app/seed/PhosphoSIGNOR_all_Data.tsv", "--if-empty"]
+    # Rebuilds the graph only when the seed files changed (dataset version stored in Neo4j).
+    command: ["python", "scripts/load_graph.py", "--if-outdated"]
     environment:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USERNAME: neo4j

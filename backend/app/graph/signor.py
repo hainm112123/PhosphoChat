@@ -1,8 +1,9 @@
-"""PhosphoSIGNOR graph queries (ported from mcp/server/signor_server.py).
+"""Kinase-substrate graph queries: PhosphoSIGNOR merged with KiNet (PhosphoSitePlus, EPSD, iPTMNet).
 
-Same Cypher and behaviour as the signor-graph MCP server, but as plain functions that the
-backend's agents call directly. Tools take plain biological names ("TP53", "ARX", "Q96QS3")
-instead of Cypher. The graph is built by scripts/load_signor.py.
+Plain functions the backend's agents call as tools. They take biological names ("TP53",
+"ARX", "Q96QS3") instead of Cypher. The graph is built by scripts/load_graph.py: each
+enzyme -> site and enzyme -> target link exists once and lists every database reporting it
+(`sources`), with the SIGNOR score/effect when SIGNOR has it.
 
 Errors: ValueError = bad input / no match (the model can fix its call);
 RuntimeError = database unreachable or credentials rejected.
@@ -10,6 +11,7 @@ RuntimeError = database unreachable or credentials rejected.
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any, Literal
 
 from neo4j import GraphDatabase, RoutingControl
@@ -19,31 +21,15 @@ from pydantic import Field
 from app.config import get_settings
 
 INSTRUCTIONS = """\
-The graph tools answer questions about protein phosphorylation signalling, using the
-PhosphoSIGNOR dataset (~13,400 curated records: a kinase or phosphatase modifies a
-phosphosite on a target protein, which up- or down-regulates that protein).
-
-Pick the tool that matches the question and pass plain names (gene symbols such as
-"TP53", or UniProt IDs such as "P04637"):
-- Unsure of the exact name/ID          -> search_entities
-- Summary of one protein/complex       -> get_entity
-- Who phosphorylates / regulates X     -> regulators_of
-- What does kinase/phosphatase X act on -> targets_of
-- Which phosphosites does X have       -> sites_of
-- How does A connect to B              -> find_paths
-- Details/papers behind a record       -> get_evidence
-- What is in the database              -> graph_overview
-
-Rules:
-- Use these tools for every graph question. Never write scripts or Cypher; everything you
-  need is exposed here.
-- Cite graph facts with their signor_id (e.g. SIGNOR-277418) and PMIDs.
-- 'score' is the SIGNOR confidence score (0-1, higher = better supported).
-- 'effect' is the effect of the modification on the target protein's activity.
+The graph tools answer questions about protein phosphorylation signalling, using PhosphoSIGNOR
+merged with KiNet (PhosphoSitePlus, EPSD, iPTMNet): a kinase or phosphatase modifies a
+phosphosite on a target protein. Each link lists the databases that report it.
 """
 
 MAX_LIMIT = 200
 Mechanism = Literal["phosphorylation", "dephosphorylation"]
+SourceName = Literal["SIGNOR", "PhosphoSitePlus", "EPSD", "iPTMNet"]
+SOURCES: tuple[str, ...] = ("SIGNOR", "PhosphoSitePlus", "EPSD", "iPTMNet")
 
 # --------------------------------------------------------------------------- database
 
@@ -90,6 +76,12 @@ def _run(query: str, **params) -> list[dict[str, Any]]:
 
 ENTITY_TYPE = "[l IN labels({v}) WHERE l <> 'Entity'][0]"
 
+# Shared WHERE clause for a merged edge `{r}`: SIGNOR score, databases, mechanism.
+# min_score > 0 keeps only links SIGNOR scored (KiNet-only links have no score).
+EDGE_FILTER = """($min_score = 0 OR coalesce({r}.score, -1) >= $min_score)
+  AND ($sources IS NULL OR any(src IN {r}.sources WHERE src IN $sources))
+  AND {r}.n_sources >= $min_sources"""
+
 
 def _clamp(limit: int) -> int:
     return max(1, min(int(limit), MAX_LIMIT))
@@ -98,6 +90,11 @@ def _clamp(limit: int) -> int:
 def _site_label(site_id: str) -> str:
     """'P04637_phSer15' -> 'Ser15'."""
     return site_id.split("_ph", 1)[-1]
+
+
+def _filters(sources: list[str] | None, min_score: float, min_sources: int) -> dict:
+    srcs = [s for s in (sources or []) if s in SOURCES] or None
+    return {"sources": srcs, "min_score": float(min_score or 0), "min_sources": max(1, int(min_sources or 1))}
 
 
 def _resolve(name_or_id: str) -> list[dict]:
@@ -116,6 +113,7 @@ def _resolve(name_or_id: str) -> list[dict]:
         MATCH (n:Entity)
         WHERE toUpper(n.id) = toUpper($q) OR toUpper(n.name) = toUpper($q)
         RETURN n.id AS id, n.name AS name, {ENTITY_TYPE.format(v='n')} AS type,
+               n.kinase_group AS kinase_group, n.kinase_family AS kinase_family,
                toUpper(n.id) = toUpper($q) AS id_match
         ORDER BY n.id""", q=q)
     exact_id = [r for r in rows if r["id_match"]]
@@ -125,7 +123,7 @@ def _resolve(name_or_id: str) -> list[dict]:
         hint = ", ".join(f"{h['name']} ({h['id']})" for h in hints) or "none"
         raise ValueError(f"No protein/complex named '{q}'. Did you mean: {hint}? "
                          "Use search_entities to look names up.")
-    return [{k: r[k] for k in ("id", "name", "type")} for r in rows]
+    return [{k: r[k] for k in ("id", "name", "type", "kinase_group", "kinase_family")} for r in rows]
 
 
 def _search(query: str, limit: int) -> list[dict]:
@@ -139,28 +137,29 @@ def _search(query: str, limit: int) -> list[dict]:
         ORDER BY rank, size(n.name), n.name
         LIMIT $limit
         RETURN n.id AS id, n.name AS name, {ENTITY_TYPE.format(v='n')} AS type,
+               n.kinase_group AS kinase_group,
                COUNT {{ (n)<-[:MODIFIES]-() }} AS n_regulator_records,
                COUNT {{ (n)-[:MODIFIES]->() }} AS n_target_records,
                COUNT {{ (n)<-[:SITE_OF]-() }} AS n_sites""", q=query.strip(), limit=limit)
 
 
 def _edges(direction: Literal["in", "out"], ids: list[str], mechanism: str | None,
-           min_score: float) -> list[dict]:
-    """MODIFIES edges into (regulators) or out of (targets) the given entities."""
+           min_score: float, sources: list[str] | None = None, min_sources: int = 1) -> list[dict]:
+    """Merged MODIFIES edges into (regulators) or out of (targets) the given entities."""
     pattern = "(other:Entity)-[m:MODIFIES]->(n:Entity)" if direction == "in" \
         else "(n:Entity)-[m:MODIFIES]->(other:Entity)"
     rows = _run(f"""
         MATCH {pattern}
-        WHERE n.id IN $ids AND m.score >= $min_score
-          AND ($mechanism IS NULL OR m.mechanism = $mechanism)
+        WHERE n.id IN $ids AND ($mechanism IS NULL OR m.mechanism = $mechanism)
+          AND {EDGE_FILTER.format(r='m')}
         RETURN other.name AS name, other.id AS id, {ENTITY_TYPE.format(v='other')} AS type,
                n.id AS via_id, m.mechanism AS mechanism, m.sites AS sites,
-               m.target_effect AS effect, m.score AS score, m.signor_id AS signor_id,
-               m.pmids AS pmids
-        ORDER BY m.score DESC, other.name""",
-                ids=ids, mechanism=mechanism, min_score=min_score)
+               m.effect AS effect, m.score AS score, m.signor_ids AS signor_ids,
+               m.sources AS sources, m.n_sources AS n_sources, m.pmids AS pmids
+        ORDER BY coalesce(m.score, 0) DESC, m.n_sources DESC, other.name""",
+                ids=ids, mechanism=mechanism, **_filters(sources, min_score, min_sources))
     for r in rows:
-        r["sites"] = [_site_label(s) for s in r["sites"]]
+        r["sites"] = sorted({_site_label(s) for s in r["sites"]})
     return rows
 
 
@@ -170,27 +169,31 @@ def _shape(rows: list[dict], role: str, ids: list[str], limit: int) -> list[dict
     for r in rows[:limit]:
         item = {f"{role}": r["name"], f"{role}_id": r["id"], f"{role}_type": r["type"],
                 "mechanism": r["mechanism"], "sites": r["sites"], "effect": r["effect"],
-                "score": r["score"], "signor_id": r["signor_id"], "pmids": r["pmids"]}
+                "score": r["score"], "sources": r["sources"], "n_sources": r["n_sources"],
+                "signor_id": (r["signor_ids"] or [None])[0], "pmids": r["pmids"][:10]}
+        if len(r["pmids"]) > 10:
+            item["more_pmids"] = len(r["pmids"]) - 10
         if len(ids) > 1:
             item["isoform"] = r["via_id"]
         out.append(item)
     return out
 
 
-def _sites(ids: list[str]) -> list[dict]:
-    rows = _run("""
+def _sites(ids: list[str], sources: list[str] | None = None, min_sources: int = 1) -> list[dict]:
+    rows = _run(f"""
         MATCH (s:Site)-[:SITE_OF]->(p:Entity) WHERE p.id IN $ids
         OPTIONAL MATCH (e:Entity)-[r:PHOSPHORYLATES|DEPHOSPHORYLATES]->(s)
-        OPTIONAL MATCH (s)-[g:REGULATES]->(p) WHERE g.signor_id = r.signor_id
-        WITH s, p, e, r, g ORDER BY r.score DESC
+        WHERE {EDGE_FILTER.format(r='r')}
+        WITH s, p, e, r ORDER BY coalesce(r.score, 0) DESC, r.n_sources DESC
         RETURN s.id AS site_id, s.residue AS residue, s.position AS position,
                p.id AS protein_id,
-               collect(CASE WHEN e IS NULL THEN NULL ELSE {
+               collect(CASE WHEN e IS NULL THEN NULL ELSE {{
                    enzyme: e.name, enzyme_id: e.id,
                    mechanism: CASE type(r) WHEN 'PHOSPHORYLATES' THEN 'phosphorylation'
                                            ELSE 'dephosphorylation' END,
-                   effect: g.effect, score: r.score, signor_id: r.signor_id} END) AS modified_by
-        ORDER BY s.position, s.residue""", ids=ids)
+                   effect: r.effect, score: r.score, sources: r.sources,
+                   signor_id: head(r.signor_ids)}} END) AS modified_by
+        ORDER BY s.position, s.residue""", ids=ids, **_filters(sources, 0, min_sources))
     for r in rows:
         r["site"] = f"{r.pop('residue')}{r.pop('position')}"
         if len(ids) == 1:
@@ -202,11 +205,15 @@ def _sites(ids: list[str]) -> list[dict]:
 
 Name = Annotated[str, Field(description="Gene symbol (e.g. 'TP53'), UniProt ID (e.g. 'P04637') "
                                         "or SIGNOR ID (e.g. 'SIGNOR-C1'). Case-insensitive.")]
-MinScore = Annotated[float, Field(ge=0, le=1, description="Only records with SIGNOR score >= this "
-                                                          "(0-1). 0 = everything.")]
+MinScore = Annotated[float, Field(ge=0, le=1, description="Only links with SIGNOR score >= this "
+                                                          "(0-1). 0 = everything; above 0 also drops "
+                                                          "links only KiNet databases report (no score).")]
 Limit = Annotated[int, Field(ge=1, le=MAX_LIMIT, description="Maximum results to return.")]
 MechanismArg = Annotated[Mechanism | None, Field(description="Restrict to 'phosphorylation' or "
                                                              "'dephosphorylation'. Omit for both.")]
+SourcesArg = Annotated[list[SourceName] | None, Field(
+    description="Only links reported by at least one of these databases. Omit for all.")]
+MinSources = Annotated[int, Field(ge=1, le=4, description="Only links reported by at least this many databases.")]
 
 
 def search_entities(
@@ -216,14 +223,14 @@ def search_entities(
     """Look up proteins, complexes and protein families by (partial) name or ID.
 
     Use this when you are unsure of the exact gene symbol. Returns matches with their
-    type and how many regulator/target records and phosphosites each has.
+    type, kinase group, and how many regulator/target links and phosphosites each has.
     """
     rows = _search(query, _clamp(limit))
     return {"query": query, "results": rows}
 
 
 def get_entity(name_or_id: Name) -> dict:
-    """Profile of one protein/complex: identity, counts, top regulators, top targets and its phosphosites.
+    """Profile of one protein/complex: identity, kinase group, counts, top regulators, top targets and its phosphosites.
 
     Good first call for "tell me about X".
     """
@@ -234,7 +241,8 @@ def get_entity(name_or_id: Name) -> dict:
     sites = _sites(ids)
     return {
         "entity": ents[0]["name"], "type": ents[0]["type"], "matched_ids": ids,
-        "counts": {"regulator_records": len(regs), "target_records": len(tgts),
+        "kinase_group": ents[0]["kinase_group"], "kinase_family": ents[0]["kinase_family"],
+        "counts": {"regulator_links": len(regs), "target_links": len(tgts),
                    "phosphosites": len(sites)},
         "top_regulators": _shape(regs, "enzyme", ids, 5),
         "top_targets": _shape(tgts, "target", ids, 5),
@@ -244,39 +252,39 @@ def get_entity(name_or_id: Name) -> dict:
 
 
 def regulators_of(target: Name, mechanism: MechanismArg = None, min_score: MinScore = 0,
-                  limit: Limit = 50) -> dict:
-    """Kinases/phosphatases that modify a protein: who (de)phosphorylates X, at which sites, with what effect.
+                  limit: Limit = 50, sources: SourcesArg = None, min_sources: MinSources = 1) -> dict:
+    """Kinases/phosphatases that modify a protein: who (de)phosphorylates X, at which sites, with what effect, reported by which databases.
 
-    Answers "which kinases phosphorylate X?" or "what regulates X?". Sorted by score.
+    Answers "which kinases phosphorylate X?" or "what regulates X?". Sorted by SIGNOR score, then by number of databases.
     """
     ents = _resolve(target)
     ids = [e["id"] for e in ents]
-    rows = _edges("in", ids, mechanism, min_score)
+    rows = _edges("in", ids, mechanism, min_score, sources, min_sources)
     return {"target": ents[0]["name"], "matched_ids": ids, "total": len(rows),
             "results": _shape(rows, "enzyme", ids, _clamp(limit))}
 
 
 def targets_of(enzyme: Name, mechanism: MechanismArg = None, min_score: MinScore = 0,
-               limit: Limit = 50) -> dict:
-    """Substrates of a kinase or phosphatase: which proteins X (de)phosphorylates, at which sites, with what effect.
+               limit: Limit = 50, sources: SourcesArg = None, min_sources: MinSources = 1) -> dict:
+    """Substrates of a kinase or phosphatase: which proteins X (de)phosphorylates, at which sites, with what effect, reported by which databases.
 
-    Answers "what does kinase X phosphorylate?". Sorted by score.
+    Answers "what does kinase X phosphorylate?". Sorted by SIGNOR score, then by number of databases.
     """
     ents = _resolve(enzyme)
     ids = [e["id"] for e in ents]
-    rows = _edges("out", ids, mechanism, min_score)
+    rows = _edges("out", ids, mechanism, min_score, sources, min_sources)
     return {"enzyme": ents[0]["name"], "matched_ids": ids, "total": len(rows),
             "results": _shape(rows, "target", ids, _clamp(limit))}
 
 
-def sites_of(protein: Name) -> dict:
-    """Phosphosites on a protein, each with the enzymes that modify it and the effect on the protein.
+def sites_of(protein: Name, sources: SourcesArg = None, min_sources: MinSources = 1) -> dict:
+    """Phosphosites on a protein, each with the enzymes that modify it, the effect, and the reporting databases.
 
     Answers "which residues of X are phosphorylated, and by whom?".
     """
     ents = _resolve(protein)
     ids = [e["id"] for e in ents]
-    rows = _sites(ids)
+    rows = _sites(ids, sources, min_sources)
     return {"protein": ents[0]["name"], "matched_ids": ids, "total_sites": len(rows),
             "sites": rows}
 
@@ -287,12 +295,14 @@ def find_paths(
     max_hops: Annotated[int, Field(ge=1, le=4, description="Maximum path length (1-4).")] = 3,
     min_score: MinScore = 0,
     limit: Annotated[int, Field(ge=1, le=50, description="Maximum paths to return.")] = 5,
+    sources: SourcesArg = None,
+    min_sources: MinSources = 1,
 ) -> dict:
     """Shortest signalling paths from source to target, following enzyme -> substrate modifications.
 
-    Each hop says which enzyme modified which protein, at which sites, with what effect.
-    Answers "how does A affect B?" / "is there a pathway from A to B?". Paths are ranked
-    by their weakest hop's score.
+    Each hop says which enzyme modified which protein, at which sites, with what effect, and
+    which databases report it. Answers "how does A affect B?" / "is there a pathway from A to B?".
+    Paths are ranked by their weakest hop (SIGNOR score; unscored hops count as 0).
     """
     src, dst = _resolve(source), _resolve(target)
     hops = max(1, min(int(max_hops), 4))  # interpolated into the Cypher: keep the clamp
@@ -300,71 +310,107 @@ def find_paths(
         MATCH (a:Entity) WHERE a.id IN $src
         MATCH (b:Entity) WHERE b.id IN $dst AND a <> b
         MATCH p = allShortestPaths((a)-[:MODIFIES*1..{hops}]->(b))
-        WHERE all(r IN relationships(p) WHERE r.score >= $min_score)
-        WITH p, reduce(m = 1.0, r IN relationships(p) | CASE WHEN r.score < m THEN r.score ELSE m END)
-                AS weakest
-        ORDER BY weakest DESC
+        WHERE all(r IN relationships(p) WHERE {EDGE_FILTER.format(r='r')})
+        WITH p, reduce(m = 1.0, r IN relationships(p) |
+                 CASE WHEN coalesce(r.score, 0) < m THEN coalesce(r.score, 0) ELSE m END) AS weakest,
+             reduce(n = 0, r IN relationships(p) | n + r.n_sources) AS support
+        ORDER BY weakest DESC, support DESC
         LIMIT $limit
         RETURN weakest AS weakest_score, [r IN relationships(p) | {{
-            enzyme: startNode(r).name, target: endNode(r).name, mechanism: r.mechanism,
-            sites: r.sites, effect: r.target_effect, score: r.score, signor_id: r.signor_id
+            enzyme: startNode(r).name, enzyme_id: startNode(r).id, target: endNode(r).name,
+            target_id: endNode(r).id, mechanism: r.mechanism, sites: r.sites, effect: r.effect,
+            score: r.score, sources: r.sources, signor_id: head(r.signor_ids)
         }}] AS hops""",
                 src=[e["id"] for e in src], dst=[e["id"] for e in dst],
-                min_score=min_score, limit=max(1, min(int(limit), 50)))
+                limit=max(1, min(int(limit), 50)), **_filters(sources, min_score, min_sources))
     for r in rows:
         for h in r["hops"]:
-            h["sites"] = [_site_label(s) for s in h["sites"]]
+            h["sites"] = sorted({_site_label(s) for s in h["sites"]})
         r["route"] = " -> ".join([r["hops"][0]["enzyme"]] + [h["target"] for h in r["hops"]])
     result = {"source": src[0]["name"], "target": dst[0]["name"], "paths": rows}
     if not rows:
         result["note"] = (f"No path within {hops} hops"
                           + (f" with score >= {min_score}" if min_score else "")
-                          + ". Try a larger max_hops (up to 4) or a lower min_score.")
+                          + ". Try a larger max_hops (up to 4), a lower min_score or more databases.")
     return result
+
+
+def get_interaction(enzyme: Name, target: Name) -> dict:
+    """Every database record behind "enzyme modifies target": database, evidence type, PMIDs, sites, and the SIGNOR id/score/effect when SIGNOR has it.
+
+    Use it to cite links that only PhosphoSitePlus, EPSD or iPTMNet report.
+    """
+    e, t = _resolve(enzyme), _resolve(target)
+    rows = _run("""
+        MATCH (a:Entity)-[m:MODIFIES]->(b:Entity) WHERE a.id IN $e AND b.id IN $t
+        RETURN a.name AS enzyme, b.name AS target, m.mechanism AS mechanism, m.sites AS sites,
+               m.sources AS sources, m.score AS score, m.effect AS effect, m.records_json AS records
+        ORDER BY m.mechanism""", e=[x["id"] for x in e], t=[x["id"] for x in t])
+    if not rows:
+        raise ValueError(f"No modification of {t[0]['name']} by {e[0]['name']} in the graph. "
+                         "Use regulators_of / targets_of to see what is there.")
+    out = []
+    for r in rows:
+        records = json.loads(r.pop("records") or "[]")
+        for rec in records:
+            if "sites" in rec:
+                rec["sites"] = sorted({_site_label(s) for s in rec["sites"]})
+            rec["pubmed_urls"] = [f"https://pubmed.ncbi.nlm.nih.gov/{p}/" for p in rec.get("pmids", [])[:20]]
+        r["sites"] = sorted({_site_label(s) for s in r["sites"]})
+        out.append({**r, "records": records})
+    return {"enzyme": e[0]["name"], "target": t[0]["name"], "interactions": out}
 
 
 def get_evidence(
     signor_id: Annotated[str, Field(description="SIGNOR record ID, e.g. 'SIGNOR-277418' "
                                                 "(the number alone also works).")],
 ) -> dict:
-    """Full detail of one SIGNOR record: enzyme, phosphosite(s), target, effects, score and PubMed links."""
+    """Full detail of one SIGNOR record: enzyme, phosphosite(s), target, effect, score and PubMed links."""
     sid = signor_id.strip().upper()
     if not sid.startswith("SIGNOR-"):
         sid = f"SIGNOR-{sid}"
     rows = _run("""
-        MATCH (a)-[r]->(b) WHERE r.signor_id = $sid AND type(r) <> 'MODIFIES'
-        RETURN type(r) AS relation, a.name AS source, b.name AS target,
-               r.effect AS effect, r.score AS score, r.pmids AS pmids
-        ORDER BY CASE type(r) WHEN 'REGULATES' THEN 1 ELSE 0 END, b.name""", sid=sid)
+        MATCH (e:Entity)-[x:PHOSPHORYLATES|DEPHOSPHORYLATES]->(s:Site)-[g:REGULATES {signor_id: $sid}]->(t:Entity)
+        WHERE $sid IN x.signor_ids
+        RETURN e.name AS enzyme, type(x) AS relation, s.name AS site, t.name AS target,
+               g.effect AS effect, g.score AS score, g.pmids AS pmids, g.mechanism AS mechanism
+        ORDER BY s.name""", sid=sid)
     if not rows:
         raise ValueError(f"No record with signor_id '{sid}'.")
-    score = rows[0]["score"]
-    pmids = sorted({p for r in rows for p in r.pop("pmids")})
+    steps = []
     for r in rows:
-        del r["score"]
-    return {"signor_id": sid, "score": score, "steps": rows, "pmids": pmids,
+        steps += [{"relation": r["relation"], "source": r["enzyme"], "target": r["site"]},
+                  {"relation": "REGULATES", "source": r["site"], "target": r["target"], "effect": r["effect"]}]
+    pmids = sorted({p for r in rows for p in r["pmids"]})
+    return {"signor_id": sid, "score": rows[0]["score"], "steps": steps, "pmids": pmids,
             "pubmed_urls": [f"https://pubmed.ncbi.nlm.nih.gov/{p}/" for p in pmids],
             "signor_url": f"https://signor.uniroma2.it/relation_result.php?id={sid}"}
 
 
 def graph_overview() -> dict:
-    """What the database contains: node/edge counts and how the data is modelled."""
+    """What the database contains: node/edge counts, links per source database, and how the data is modelled."""
     nodes = _run("MATCH (n) UNWIND labels(n) AS label RETURN label, count(*) AS count ORDER BY label")
     rels = _run("MATCH ()-[r]->() RETURN type(r) AS type, count(*) AS count ORDER BY type")
+    per_source = _run("MATCH ()-[m:MODIFIES]->() UNWIND m.sources AS s RETURN s AS source, count(*) AS links ORDER BY links DESC")
+    meta = _run("MATCH (m:Meta) RETURN m.dataset_version AS version, m.loaded_at AS loaded_at LIMIT 1")
     return {
-        "source": "PhosphoSIGNOR (SIGNOR database, phosphorylation/dephosphorylation subset)",
+        "source": "PhosphoSIGNOR + KiNet (PhosphoSitePlus, EPSD, iPTMNet), merged per interaction",
         "nodes": {r["label"]: r["count"] for r in nodes},
         "relationships": {r["type"]: r["count"] for r in rels},
+        "links_per_source": {r["source"]: r["links"] for r in per_source},
+        "dataset": meta[0] if meta else None,
         "model": [
-            "Entity = Protein | Complex | ProteinFamily | FusionProtein | Phenotype (id, name)",
+            "Entity = Protein | Complex | ProteinFamily | FusionProtein | Phenotype (id, name, kinase_group)",
             "Site = a phosphorylatable residue on a protein, e.g. TP53 Ser15",
-            "enzyme -PHOSPHORYLATES/DEPHOSPHORYLATES-> Site -REGULATES-> protein",
-            "enzyme -MODIFIES-> protein is the shortcut used by regulators_of/targets_of/find_paths",
+            "enzyme -PHOSPHORYLATES/DEPHOSPHORYLATES-> Site -REGULATES-> protein (REGULATES: SIGNOR only)",
+            "enzyme -MODIFIES-> protein: one merged link per (enzyme, target, mechanism), listing its databases",
+            "score/effect come from SIGNOR; links only KiNet databases report have no score/effect",
         ],
         "mechanisms": ["phosphorylation", "dephosphorylation"],
         "effects": ["up-regulates", "down-regulates"],
+        "databases": list(SOURCES),
     }
 
 
 GRAPH_TOOLS = [search_entities, get_entity, regulators_of, targets_of, sites_of, find_paths,
-               get_evidence, graph_overview]
+               get_interaction, get_evidence, graph_overview]

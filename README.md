@@ -306,7 +306,7 @@ tools, so there is no MCP server, no subprocess and no shell between the model a
 |---|---|
 | [`api/`](backend/app/api/) | HTTP surface. `vaults.py` (list/create vaults, config, health), `wiki.py` (read pages, sources, index, log, git history), `jobs.py` (capture, sync/lint/digest, job status and SSE progress), `chat.py` (streaming chat over SSE). |
 | [`jobs/runner.py`](backend/app/jobs/runner.py) | Runs each job as an asyncio task and keeps its event log so the UI can follow or replay progress. Jobs on the same vault wait for each other through the vault's lock. |
-| [`agents/chat.py`](backend/app/agents/chat.py) | Chat agent: read-only vault tools, graph tools and `load_skill`. Keeps per-session history in memory, trimmed at whole turns. |
+| [`agents/chat.py`](backend/app/agents/chat.py) | Chat agent: read-only vault tools, graph tools and `load_skill`. Saved conversations are in [`chat_store.py`](backend/app/chat_store.py) and the running summary in [`agents/summary.py`](backend/app/agents/summary.py). |
 | [`agents/jobs.py`](backend/app/agents/jobs.py) | Job pipeline for capture, sync, lint and digest: deterministic pre-step, agent run with the skill as instructions, fact-check and one revision (capture/sync), deterministic post-step. |
 | [`agents/verify.py`](backend/app/agents/verify.py) | Fact-checker: gets the source text and the new pages in its prompt and returns the claims the source doesn't support. It has no tools. |
 | [`agents/runtime.py`](backend/app/agents/runtime.py) | Runs an agent and turns pydantic-ai stream events into small UI events (`text`, `tool_call`, `tool_result`, `usage`); turns provider errors into readable messages. |
@@ -346,7 +346,7 @@ sequenceDiagram
     participant T as Tools (vault, graph)
 
     UI->>API: POST /api/vaults/{v}/chat {message, session_id}
-    API->>A: run with session history
+    API->>A: run with the saved history (last turns + summary)
     loop until the model answers
         A->>M: instructions (AGENTS.md + chat rules) + history
         M-->>A: tool call, e.g. regulators_of("ARX")
@@ -356,7 +356,29 @@ sequenceDiagram
     end
     M-->>A: answer text with citations
     API-->>UI: SSE text deltas, then done
+    API->>API: save the turn; fold older turns into the summary
 ```
+
+### Chat history
+
+Conversations are saved, so they survive a restart. Each user sees only their own:
+- **Where:** `DATA_DIR/phosphochat.db`, next to the users. Deleting a user deletes their
+  conversations; admins can't read other users' chats.
+- **Chat page:** the sidebar lists the vault's past chats, which you can open, rename or delete.
+  Each chat has its own URL (`/<vault>/chat/<id>`). **New chat** starts a fresh one and keeps the old.
+- **What the model sees:** the last `CHAT_KEEP_TURNS` turns (6 by default) as they were, with
+  their tool calls. Older turns are folded into a running summary that keeps proteins, sites,
+  citations and what you asked for.
+  - The summary is written by the chat model after an answer. It sees only the question and
+    answer text, not tool output.
+  - If it fails, those turns stay in the history (up to twice the window) and the summary is
+    tried again after the next answer.
+  - `CHAT_SUMMARIZE=false` drops old turns instead.
+- **What isn't stored:** the retrieved context and the summary are added to each request fresh
+  and aren't saved in the history.
+- **Lasting facts** belong in the wiki: use "Save to wiki" or capture a note.
+- **Privacy:** back up `data/` and treat it as private, because it holds what people asked.
+  `CHAT_RETENTION_DAYS` deletes conversations idle for that long at startup.
 
 Lookups that find nothing ("no page X", "no protein named Y, did you mean…") come back as
 ordinary tool results. A model that keeps guessing therefore can't use up its retries and abort
@@ -442,11 +464,12 @@ changes and wins over the process environment for the keys it defines.
 | `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` | `bolt://localhost:7687`, `neo4j`, –, `neo4j` | Graph connection |
 | `VAULTS_DIR`, `DEFAULT_VAULT` | `vaults`, `default` | Where vaults live; the vault created on first start |
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | –, – | Bootstrap admin, created at startup when no active admin exists |
-| `DATA_DIR`, `SESSION_DAYS`, `COOKIE_SECURE` | `data`, `14`, `false` | User database location; session length; https-only cookie |
+| `DATA_DIR`, `SESSION_DAYS`, `COOKIE_SECURE` | `data`, `14`, `false` | Database location (users, logins, chat history); session length; https-only cookie |
 | `TOOL_OUTPUT_CHARS` | `8000` | Cap on any single tool result sent to the model |
 | `VERIFY_CAPTURES`, `VERIFY_SOURCE_CHARS` | `false`, `12000` | Fact-check after capture/sync; source text given to the checker |
 | `CHAT_REQUEST_LIMIT`, `JOB_REQUEST_LIMIT` | `15`, `40` | Max model calls per chat answer / per job |
-| `CHAT_HISTORY_MESSAGES` | `20` | Chat history kept per session |
+| `CHAT_KEEP_TURNS`, `CHAT_SUMMARIZE`, `CHAT_SUMMARY_CHARS` | `6`, `true`, `1500` | Recent turns the model sees as they were; fold older ones into a summary; its size cap |
+| `CHAT_RETENTION_DAYS` | `0` | Delete conversations idle this many days, at startup (0 keeps them) |
 | `CHAT_PREFETCH`, `CHAT_CONTEXT_CHARS` | `true`, `6000` | Look up wiki pages, claims and graph data for the question before the model answers; size cap |
 
 ## Tests
@@ -474,6 +497,6 @@ cd backend && .venv/Scripts/python -m pytest -q
 
 - Login sessions and users are in SQLite on one server. Serve over https (`COOKIE_SECURE=true`)
   before exposing it beyond localhost.
-- Jobs and chat history live in memory and are lost on restart; the vault itself is on disk and in git.
+- Jobs live in memory and are lost on restart; the vault is on disk and in git, and chat history is in SQLite.
 - `search_pages` is a plain substring search. Add SQLite FTS or embeddings once the wiki grows.
 - Not built yet: KEGG pathway and InterPro domain views, scheduled digest, and an MCP facade over `app/graph/signor.py`.

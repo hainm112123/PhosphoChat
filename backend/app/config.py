@@ -46,14 +46,17 @@ class Settings(BaseSettings):
     # Auth: the first admin is created from these on startup when no admin exists yet.
     admin_username: str = ""
     admin_password: str = ""
-    data_dir: Path = Path("data")      # holds phosphochat.db (users, sessions)
+    data_dir: Path = Path("data")      # holds phosphochat.db (users, sessions, chat history)
     session_days: int = 14
     cookie_secure: bool = False        # set true when served over https
 
     tool_output_chars: int = 8000
     verify_captures: bool = False       # fact-check capture/sync pages against their sources
     verify_source_chars: int = 12000    # source text sent to the fact-checker
-    chat_history_messages: int = 20
+    chat_keep_turns: int = 6            # recent turns sent to the model as they were
+    chat_summarize: bool = True         # fold older turns into a running summary (else drop them)
+    chat_summary_chars: int = 1500      # size cap of that summary
+    chat_retention_days: int = 0        # delete conversations idle this long at startup; 0 = keep
     chat_prefetch: bool = True          # look up wiki + graph for the question before the model runs
     chat_context_chars: int = 6000      # size cap of that retrieved context
     chat_request_limit: int = 15

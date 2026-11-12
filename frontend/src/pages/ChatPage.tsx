@@ -1,12 +1,12 @@
-import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { api, streamChat, type Job } from "../api";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { api, chatApi, streamChat, type ConversationDetail, type ConversationSummary, type Job } from "../api";
 import { Markdown } from "../components/Markdown";
 import { JobProgress } from "../components/JobProgress";
 import { mergeNetworks } from "../components/networkUtils";
 // Cytoscape is large: load it only when an answer has a network to draw.
 const NetworkView = lazy(() => import("../components/NetworkView").then((m) => ({ default: m.NetworkView })));
 import type { ChatContext, Network } from "../api";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth";
 import { useVault } from "../vault";
 
@@ -24,9 +24,10 @@ type Msg = {
   context?: ChatContext; // what was looked up before the model answered
   notice?: string; // e.g. the answer was restarted after an invalid tool call
 };
-type Conversation = { session: string | null; messages: Msg[] };
+type Conversation = { session: string | null; messages: Msg[]; loading?: boolean; missing?: string };
 
-// Conversations live outside React so they survive navigating between tabs.
+// The open conversation per vault lives outside React so it survives navigating between tabs.
+// Saved conversations come from the server (chatApi); the URL says which one is open.
 const store = new Map<string, Conversation>();
 const listeners = new Set<() => void>();
 function getConv(vault: string): Conversation {
@@ -51,6 +52,19 @@ function patchLast(vault: string, fn: (m: Msg) => Msg) {
   setConv(vault, (c) => ({ ...c, messages: [...c.messages.slice(0, -1), fn(c.messages[c.messages.length - 1])] }));
 }
 
+/** A saved conversation as chat messages (the same fields the stream fills in). */
+function toMessages(d: ConversationDetail): Msg[] {
+  return d.turns.flatMap((t): Msg[] => [
+    { role: "user", text: t.question, tools: [] },
+    {
+      role: "assistant", text: t.answer, tools: t.ui.tools ?? [], error: t.error ?? undefined,
+      usage: t.ui.usage, graphs: t.ui.graphs, context: t.ui.context, notice: t.ui.notice,
+    },
+  ]);
+}
+
+const narrow = () => window.matchMedia?.("(max-width: 760px)").matches ?? false;
+
 export function ChatPage() {
   const { vault, pages } = useVault();
   const { isAdmin } = useAuth();
@@ -60,6 +74,33 @@ export function ChatPage() {
   const [input, setInput] = useState<string>((location.state as { prefill?: string } | null)?.prefill ?? "");
   const busy = conv.messages.some((m) => m.pending);
   const endRef = useRef<HTMLDivElement>(null);
+  const { conversationId } = useParams();
+  const navigate = useNavigate();
+  const [history, setHistory] = useState<ConversationSummary[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(() => !narrow());
+  const refreshHistory = useCallback(() => chatApi.list(vault).then(setHistory).catch(() => {}), [vault]);
+  useEffect(() => { refreshHistory(); }, [refreshHistory]);
+
+  // Keep the URL and the open conversation in step: /<vault>/chat shows the open one (if any),
+  // /<vault>/chat/<id> loads that one from the server.
+  useEffect(() => {
+    const c = getConv(vault);
+    if (!conversationId) {
+      if (c.session) navigate(`/${vault}/chat/${c.session}`, { replace: true });
+      return;
+    }
+    // A load still marked `loading` was cancelled (StrictMode runs effects twice on mount, and a
+    // cancelled run ignores its result), so fetch again rather than wait on it.
+    if ((conversationId === c.session && !c.loading) || c.messages.some((m) => m.pending)) return;
+    let stale = false;
+    setConv(vault, () => ({ session: conversationId, messages: [], loading: true }));
+    chatApi.get(vault, conversationId)
+      .then((d) => { if (!stale) setConv(vault, () => ({ session: d.id, messages: toMessages(d) })); })
+      .catch((e) => {
+        if (!stale) setConv(vault, () => ({ session: null, messages: [], missing: e instanceof Error ? e.message : String(e) }));
+      });
+    return () => { stale = true; };
+  }, [vault, conversationId, navigate]);
 
   useEffect(() => {
     // Braces matter: newer Chromium returns a Promise from scrollIntoView, and an effect
@@ -78,7 +119,12 @@ export function ChatPage() {
     }));
     try {
       await streamChat(vault, { message, session_id: getConv(vault).session }, (event, data) => {
-        if (event === "session") setConv(vault, (c) => ({ ...c, session: data.session_id }));
+        if (event === "session") {
+          if (data.session_id !== getConv(vault).session) {
+            setConv(vault, (c) => ({ ...c, session: data.session_id, missing: undefined }));
+            navigate(`/${vault}/chat/${data.session_id}`, { replace: !conversationId });
+          }
+        }
         else if (event === "text") patchLast(vault, (m) => ({ ...m, text: m.text + data.delta }));
         else if (event === "tool_call")
           patchLast(vault, (m) => ({ ...m, tools: [...m.tools, { id: data.id, name: data.name, args: data.args }] }));
@@ -98,13 +144,21 @@ export function ChatPage() {
       patchLast(vault, (m) => ({ ...m, error: String(e) }));
     } finally {
       patchLast(vault, (m) => ({ ...m, pending: false }));
+      refreshHistory();
     }
   }
 
-  async function newChat() {
-    if (conv.session) await api.resetChat(vault, conv.session).catch(() => {});
+  function newChat() {
     setConv(vault, () => ({ session: null, messages: [] }));
+    navigate(`/${vault}/chat`);
   }
+
+  function open(id: string) {
+    if (narrow()) setHistoryOpen(false);
+    navigate(`/${vault}/chat/${id}`);
+  }
+
+  const active = history.find((h) => h.id === conv.session);
 
   async function save(i: number) {
     const question = conv.messages[i - 1]?.text ?? "";
@@ -118,15 +172,34 @@ export function ChatPage() {
   }
 
   return (
+    <div className={`chat-layout${historyOpen ? " with-history" : ""}`}>
+      {historyOpen && (
+        <ChatHistory
+          vault={vault} items={history} active={conv.session} disabled={busy} onOpen={open}
+          onChanged={refreshHistory} onDeletedActive={newChat}
+        />
+      )}
     <div className="chat">
       <header className="page-head">
         <h1>Chat</h1>
         <span className="muted">Answers from your wiki and the PhosphoSIGNOR graph, with citations.</span>
-        <button className="btn btn-ghost" onClick={newChat} disabled={busy || !conv.messages.length}>New chat</button>
+        <span className="head-actions">
+          <button className="btn btn-ghost" onClick={() => setHistoryOpen((o) => !o)} aria-expanded={historyOpen}>
+            {historyOpen ? "Hide history" : `History${history.length ? ` (${history.length})` : ""}`}
+          </button>
+          <button className="btn btn-ghost" onClick={newChat} disabled={busy || !conv.messages.length}>New chat</button>
+        </span>
       </header>
 
       <div className="messages">
-        {!conv.messages.length && (
+        {conv.loading && <div className="empty muted pulse">Loading conversation...</div>}
+        {conv.missing && <div className="error">This conversation can't be opened ({conv.missing}). Ask something to start a new one.</div>}
+        {active && active.summarized_upto > 0 && (
+          <div className="muted small summary-note">
+            The model sees the earlier turns of this chat as a summary, and the latest ones in full.
+          </div>
+        )}
+        {!conv.messages.length && !conv.loading && (
           <div className="empty">
             <p>Ask about kinases, substrates, phosphosites and pathways, or about anything you've captured.</p>
             <div className="examples">
@@ -184,9 +257,89 @@ export function ChatPage() {
           }}
           rows={2}
         />
-        <button className="btn" disabled={busy || !input.trim()}>Send</button>
+        <button className="btn" disabled={busy || !input.trim() || conv.loading}>Send</button>
       </form>
     </div>
+    </div>
+  );
+}
+
+/** This vault's saved conversations, newest first, with rename and delete. */
+function ChatHistory({ vault, items, active, disabled, onOpen, onChanged, onDeletedActive }: {
+  vault: string;
+  items: ConversationSummary[];
+  active: string | null;
+  disabled: boolean;
+  onOpen: (id: string) => void;
+  onChanged: () => void;
+  onDeletedActive: () => void;
+}) {
+  const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
+
+  async function rename() {
+    if (!editing) return;
+    const { id, title } = editing;
+    setEditing(null);
+    if (!title.trim()) return;
+    await chatApi.rename(vault, id, title).then(onChanged, fail);
+  }
+
+  async function remove(id: string) {
+    setConfirming(null);
+    await chatApi.remove(vault, id).then(() => {
+      if (id === active) onDeletedActive();
+      onChanged();
+    }, fail);
+  }
+
+  return (
+    <aside className="chat-history" aria-label="Past conversations">
+      <div className="chat-history-head muted small">Past chats in this vault</div>
+      {error && <div className="error small">{error}</div>}
+      {!items.length && <div className="muted small">Your conversations will be listed here.</div>}
+      <ul>
+        {items.map((c) => (
+          <li key={c.id} className={c.id === active ? "active" : undefined}>
+            {editing?.id === c.id ? (
+              <input
+                autoFocus value={editing.title} maxLength={120} aria-label="Conversation title"
+                onChange={(e) => setEditing({ id: c.id, title: e.target.value })}
+                onBlur={rename}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") rename();
+                  if (e.key === "Escape") setEditing(null);
+                }}
+              />
+            ) : (
+              <button className="chat-history-item" disabled={disabled} onClick={() => onOpen(c.id)} title={c.title}>
+                <span className="chat-history-title">{c.title}</span>
+                <span className="muted small">{new Date(c.updated_at).toLocaleDateString()} · {c.turns} turn{c.turns === 1 ? "" : "s"}</span>
+              </button>
+            )}
+            {editing?.id !== c.id && (
+              <span className="chat-history-actions">
+                {confirming === c.id ? (
+                  <>
+                    <button className="btn btn-small btn-ghost btn-danger" onClick={() => remove(c.id)}>Delete</button>
+                    <button className="btn btn-small btn-ghost" onClick={() => setConfirming(null)}>Keep</button>
+                  </>
+                ) : (
+                  <>
+                    <button className="icon-btn" title="Rename" aria-label="Rename" disabled={disabled}
+                      onClick={() => setEditing({ id: c.id, title: c.title })}>✎</button>
+                    <button className="icon-btn" title="Delete" aria-label="Delete" disabled={disabled}
+                      onClick={() => setConfirming(c.id)}>×</button>
+                  </>
+                )}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </aside>
   );
 }
 

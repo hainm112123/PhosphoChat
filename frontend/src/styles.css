@@ -251,6 +251,29 @@ table.users tr.is-disabled td { color: var(--muted); }
 .trace pre { max-height: 180px; overflow: auto; background: var(--code); padding: 8px; border-radius: 6px; white-space: pre-wrap; word-break: break-all; color: var(--text); }
 .msg-actions { display: flex; gap: 12px; align-items: center; justify-content: flex-end; margin-top: 6px; }
 .composer { display: flex; gap: 10px; align-items: flex-end; padding: 12px 0 20px; border-top: 1px solid var(--border); background: var(--bg); position: sticky; bottom: 0; }
+.head-actions { margin-left: auto; display: flex; gap: 8px; }
+.page-head .head-actions .btn { margin-left: 0; }
+.summary-note { text-align: center; margin: 8px 0; }
+
+/* chat history (past conversations) */
+.chat-layout { height: 100%; }
+.chat-layout.with-history { display: grid; grid-template-columns: 250px minmax(0, 1fr); }
+.chat-layout.with-history .chat { margin: 0; width: 100%; justify-self: center; }
+.chat-history { border-right: 1px solid var(--border); overflow: auto; padding: 18px 10px; min-width: 0; }
+.chat-history-head { padding: 0 8px 8px; }
+.chat-history ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.chat-history li { display: flex; align-items: center; gap: 2px; border-radius: 6px; padding-right: 4px; }
+.chat-history li:hover, .chat-history li.active { background: var(--panel); }
+.chat-history li.active { background: var(--accent-soft); }
+.chat-history li input { margin: 2px 0; padding: 5px 8px; }
+.chat-history-item { flex: 1; min-width: 0; display: grid; text-align: left; font: inherit; color: var(--text); background: none; border: 0; padding: 7px 8px; cursor: pointer; }
+.chat-history-item:disabled { cursor: default; opacity: .7; }
+.chat-history-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-history-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.chat-history li:not(:hover):not(.active) .icon-btn { visibility: hidden; }
+.icon-btn { font: inherit; background: none; border: 0; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+.icon-btn:hover:not(:disabled) { color: var(--text); background: var(--border); }
+@media (hover: none) { .chat-history li .icon-btn { visibility: visible; } }
 
 /* wiki / sources */
 .split { display: grid; grid-template-columns: 280px 1fr; height: 100%; }
@@ -300,6 +323,9 @@ table.users tr.is-disabled td { color: var(--muted); }
   .split { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .list { max-height: 30vh; border-right: 0; border-bottom: 1px solid var(--border); }
   .doc, .page, .chat { padding-left: 16px; padding-right: 16px; }
+  .chat-layout.with-history { display: flex; flex-direction: column; }
+  .chat-history { max-height: 35vh; border-right: 0; border-bottom: 1px solid var(--border); padding: 10px 6px; flex-shrink: 0; }
+  .chat-layout.with-history .chat { min-height: 0; flex: 1; }
 }
 
 /* graph explorer */

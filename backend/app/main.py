@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from app.api import auth, chat, graph, jobs, models, vaults, wiki  # noqa: E402
 from app.api.deps import registry  # noqa: E402
 from app.auth.deps import SameOriginMiddleware, auth_store  # noqa: E402
+from app.chat_store import chat_store  # noqa: E402
 from app.config import REPO_ROOT, get_settings  # noqa: E402
 from app.graph.signor import close_driver  # noqa: E402
 from app.llm import check_role_models, role_sources  # noqa: E402
@@ -41,6 +42,11 @@ async def lifespan(_: FastAPI):
         log.warning("Created admin '%s' from ADMIN_USERNAME/ADMIN_PASSWORD.", s.admin_username)
     elif not store.has_admin():
         log.warning("No admin account yet: set ADMIN_USERNAME and ADMIN_PASSWORD in .env and restart.")
+    if s.chat_retention_days > 0:
+        n = chat_store().delete_older_than(s.chat_retention_days)
+        if n:
+            log.warning("Deleted %d conversation(s) idle for over %d days (CHAT_RETENTION_DAYS).", n,
+                        s.chat_retention_days)
     _startup_report(store.has_admin())
     yield
     close_driver()
@@ -64,7 +70,8 @@ def _startup_report(has_admin: bool) -> None:
 
 app = FastAPI(title="PhosphoChat", lifespan=lifespan)
 app.add_middleware(SameOriginMiddleware)
-for r in (auth.router, vaults.router, wiki.router, jobs.router, chat.router, models.router, graph.router):
+for r in (auth.router, vaults.router, wiki.router, jobs.router, chat.router, chat.conversations,
+          models.router, graph.router):
     app.include_router(r)
 
 # Serve the built frontend (npm run build) from the same origin when it exists;

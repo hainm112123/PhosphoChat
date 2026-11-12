@@ -275,8 +275,42 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question, answer }),
     }),
-  resetChat: (vault: string, session: string) =>
-    request<void>(`${v(vault)}/chat/${session}`, { method: "DELETE" }),
+};
+
+export type ConversationSummary = {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  summarized_upto: number; // turns up to this one reach the model only through a summary
+  turns: number;
+};
+/** What the chat page shows for a saved answer (the same fields the stream events fill in). */
+export type TurnUi = {
+  tools?: { id: string; name: string; args: unknown; result?: string; retry?: boolean }[];
+  context?: ChatContext;
+  graphs?: Network[];
+  notice?: string;
+  usage?: { requests: number; input_tokens: number; output_tokens: number };
+};
+export type ConversationDetail = Omit<ConversationSummary, "turns"> & {
+  summary: string;
+  turns: { seq: number; question: string; answer: string; error: string | null; ui: TurnUi }[];
+};
+
+/** The current user's saved conversations in a vault. */
+export const chatApi = {
+  list: (vault: string) => request<ConversationSummary[]>(`${v(vault)}/conversations`),
+  get: (vault: string, id: string) =>
+    request<ConversationDetail>(`${v(vault)}/conversations/${encodeURIComponent(id)}`),
+  rename: (vault: string, id: string, title: string) =>
+    request<ConversationSummary>(`${v(vault)}/conversations/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    }),
+  remove: (vault: string, id: string) =>
+    request<void>(`${v(vault)}/conversations/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };
 
 /** POST a chat message and call onEvent for every server-sent event. */

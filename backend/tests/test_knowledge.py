@@ -8,7 +8,7 @@ import pytest
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from app.agents.chat import chat_agent, sessions
+from app.agents.chat import chat_agent
 from app.knowledge import context as ctx_mod
 from app.knowledge import entities
 
@@ -113,7 +113,12 @@ def test_chat_gets_context_for_this_turn_only(make_client, fake_graph, monkeypat
     assert "# Retrieved context" in seen["instructions"] and "ATM" in seen["instructions"]
     ctx = [json.loads(b.split("data: ", 1)[1]) for b in raw.split("\n\n") if b.startswith("event: context")]
     assert ctx and ctx[0]["entities"] == ["ATM", "TDP1"]
-    history = next(iter(sessions._data.values()))
+    from app.chat_store import chat_store
+    store = chat_store()
+    row = store._q("SELECT id, user_id FROM conversations")[0]
+    conv = store.get(row["id"], row["user_id"], "default")
+    history = store.history(conv, 10)
+    assert history
     assert "Retrieved context" not in json.dumps([str(m) for m in history])  # not stored in history
 
     from app.config import get_settings

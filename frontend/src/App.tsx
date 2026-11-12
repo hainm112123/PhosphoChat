@@ -129,6 +129,7 @@ export function App() {
       <Route path="/:vault" element={<Shell />}>
         <Route index element={<Navigate to="chat" replace />} />
         <Route path="chat" element={<ChatPage />} />
+        <Route path="chat/:conversationId" element={<ChatPage />} />
         <Route path="graph" element={<Suspense fallback={<div className="empty muted pulse">Loading graph explorer...</div>}><GraphPage /></Suspense>} />
         <Route path="capture" element={<AdminOnly what="capture sources"><CapturePage /></AdminOnly>} />
         <Route path="wiki" element={<WikiPage />} />

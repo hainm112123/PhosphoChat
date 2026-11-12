@@ -251,16 +251,16 @@ table.users tr.is-disabled td { color: var(--muted); }
 .trace pre { max-height: 180px; overflow: auto; background: var(--code); padding: 8px; border-radius: 6px; white-space: pre-wrap; word-break: break-all; color: var(--text); }
 .msg-actions { display: flex; gap: 12px; align-items: center; justify-content: flex-end; margin-top: 6px; }
 .composer { display: flex; gap: 10px; align-items: flex-end; padding: 12px 0 20px; border-top: 1px solid var(--border); background: var(--bg); position: sticky; bottom: 0; }
-.head-actions { margin-left: auto; display: flex; gap: 8px; }
-.page-head .head-actions .btn { margin-left: 0; }
 .summary-note { text-align: center; margin: 8px 0; }
 
 /* chat history (past conversations) */
-.chat-layout { height: 100%; }
-.chat-layout.with-history { display: grid; grid-template-columns: 250px minmax(0, 1fr); }
-.chat-layout.with-history .chat { margin: 0; width: 100%; justify-self: center; }
+.chat-layout { height: 100%; display: grid; grid-template-columns: 250px minmax(0, 1fr); }
+.chat-layout.history-collapsed { grid-template-columns: 44px minmax(0, 1fr); }
+.chat-layout .chat { margin: 0; width: 100%; justify-self: center; }
 .chat-history { border-right: 1px solid var(--border); overflow: auto; padding: 18px 10px; min-width: 0; }
-.chat-history-head { padding: 0 8px 8px; }
+.chat-history-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 0 8px 8px; }
+.chat-history.collapsed { display: flex; flex-direction: column; align-items: center; padding: 18px 6px; overflow: hidden; }
+.collapsed-label { display: none; }
 .chat-history ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .chat-history li { display: flex; align-items: center; gap: 2px; border-radius: 6px; padding-right: 4px; }
 .chat-history li:hover, .chat-history li.active { background: var(--panel); }
@@ -274,6 +274,23 @@ table.users tr.is-disabled td { color: var(--muted); }
 .icon-btn { font: inherit; background: none; border: 0; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; }
 .icon-btn:hover:not(:disabled) { color: var(--text); background: var(--border); }
 @media (hover: none) { .chat-history li .icon-btn { visibility: visible; } }
+
+/* "‹" / "›" toggles for the side columns (navigation, past chats) */
+.collapse-btn {
+  display: inline-grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; padding: 0;
+  background: none; border: 1px solid transparent; border-radius: 6px; color: var(--muted); cursor: pointer;
+}
+.collapse-btn:hover { color: var(--text); background: var(--border); }
+.collapse-btn svg { transition: transform .15s; }
+.collapse-btn.collapsed svg { transform: rotate(180deg); }
+.brand .nav-toggle { margin-left: auto; }
+@media (min-width: 761px) {
+  .app.nav-collapsed { grid-template-columns: 52px 1fr; }
+  .app.nav-collapsed .sidebar { padding: 16px 8px; align-items: center; }
+  .app.nav-collapsed .sidebar > :not(.brand),
+  .app.nav-collapsed .brand > :not(.nav-toggle) { display: none; }
+  .app.nav-collapsed .brand { padding: 4px 0; }
+}
 
 /* wiki / sources */
 .split { display: grid; grid-template-columns: 280px 1fr; height: 100%; }
@@ -323,9 +340,15 @@ table.users tr.is-disabled td { color: var(--muted); }
   .split { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .list { max-height: 30vh; border-right: 0; border-bottom: 1px solid var(--border); }
   .doc, .page, .chat { padding-left: 16px; padding-right: 16px; }
-  .chat-layout.with-history { display: flex; flex-direction: column; }
+  .nav-toggle { display: none; } /* the navigation is a top bar here */
+  .chat-layout, .chat-layout.history-collapsed { display: flex; flex-direction: column; }
   .chat-history { max-height: 35vh; border-right: 0; border-bottom: 1px solid var(--border); padding: 10px 6px; flex-shrink: 0; }
-  .chat-layout.with-history .chat { min-height: 0; flex: 1; }
+  .chat-history.collapsed { flex-direction: row; gap: 8px; padding: 4px 10px; }
+  .collapsed-label { display: inline; }
+  .chat-layout .chat { min-height: 0; flex: 1; }
+  /* stacked above the chat: the chevron points up to hide, down to show */
+  .chat-history .collapse-btn svg { transform: rotate(90deg); }
+  .chat-history .collapse-btn.collapsed svg { transform: rotate(-90deg); }
 }
 
 /* graph explorer */

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api, chatApi, streamChat, type ConversationDetail, type ConversationSummary, type Job } from "../api";
+import { CollapseButton, useRememberedToggle } from "../components/CollapseButton";
 import { Markdown } from "../components/Markdown";
 import { JobProgress } from "../components/JobProgress";
 import { mergeNetworks } from "../components/networkUtils";
@@ -77,7 +78,7 @@ export function ChatPage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
   const [history, setHistory] = useState<ConversationSummary[]>([]);
-  const [historyOpen, setHistoryOpen] = useState(() => !narrow());
+  const [historyOpen, toggleHistory] = useRememberedToggle("chat.history.open", !narrow());
   const refreshHistory = useCallback(() => chatApi.list(vault).then(setHistory).catch(() => {}), [vault]);
   useEffect(() => { refreshHistory(); }, [refreshHistory]);
 
@@ -154,7 +155,7 @@ export function ChatPage() {
   }
 
   function open(id: string) {
-    if (narrow()) setHistoryOpen(false);
+    if (narrow() && historyOpen) toggleHistory();
     navigate(`/${vault}/chat/${id}`);
   }
 
@@ -172,23 +173,16 @@ export function ChatPage() {
   }
 
   return (
-    <div className={`chat-layout${historyOpen ? " with-history" : ""}`}>
-      {historyOpen && (
-        <ChatHistory
-          vault={vault} items={history} active={conv.session} disabled={busy} onOpen={open}
-          onChanged={refreshHistory} onDeletedActive={newChat}
-        />
-      )}
+    <div className={`chat-layout${historyOpen ? "" : " history-collapsed"}`}>
+      <ChatHistory
+        vault={vault} items={history} active={conv.session} disabled={busy} onOpen={open}
+        onChanged={refreshHistory} onDeletedActive={newChat} open={historyOpen} onToggle={toggleHistory}
+      />
     <div className="chat">
       <header className="page-head">
         <h1>Chat</h1>
         <span className="muted">Answers from your wiki and the PhosphoSIGNOR graph, with citations.</span>
-        <span className="head-actions">
-          <button className="btn btn-ghost" onClick={() => setHistoryOpen((o) => !o)} aria-expanded={historyOpen}>
-            {historyOpen ? "Hide history" : `History${history.length ? ` (${history.length})` : ""}`}
-          </button>
-          <button className="btn btn-ghost" onClick={newChat} disabled={busy || !conv.messages.length}>New chat</button>
-        </span>
+        <button className="btn btn-ghost" onClick={newChat} disabled={busy || !conv.messages.length}>New chat</button>
       </header>
 
       <div className="messages">
@@ -265,7 +259,7 @@ export function ChatPage() {
 }
 
 /** This vault's saved conversations, newest first, with rename and delete. */
-function ChatHistory({ vault, items, active, disabled, onOpen, onChanged, onDeletedActive }: {
+function ChatHistory({ vault, items, active, disabled, onOpen, onChanged, onDeletedActive, open, onToggle }: {
   vault: string;
   items: ConversationSummary[];
   active: string | null;
@@ -273,6 +267,8 @@ function ChatHistory({ vault, items, active, disabled, onOpen, onChanged, onDele
   onOpen: (id: string) => void;
   onChanged: () => void;
   onDeletedActive: () => void;
+  open: boolean;
+  onToggle: () => void;
 }) {
   const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -295,9 +291,21 @@ function ChatHistory({ vault, items, active, disabled, onOpen, onChanged, onDele
     }, fail);
   }
 
+  if (!open) {
+    return (
+      <aside className="chat-history collapsed" aria-label="Past conversations">
+        <CollapseButton collapsed onToggle={onToggle} label="past chats" />
+        <span className="collapsed-label muted small">Past chats{items.length ? ` (${items.length})` : ""}</span>
+      </aside>
+    );
+  }
+
   return (
     <aside className="chat-history" aria-label="Past conversations">
-      <div className="chat-history-head muted small">Past chats in this vault</div>
+      <div className="chat-history-head muted small">
+        <span>Past chats in this vault</span>
+        <CollapseButton collapsed={false} onToggle={onToggle} label="past chats" />
+      </div>
       {error && <div className="error small">{error}</div>}
       {!items.length && <div className="muted small">Your conversations will be listed here.</div>}
       <ul>

@@ -3,6 +3,7 @@ import { Navigate, NavLink, Outlet, Route, Routes, useNavigate, useParams } from
 import { api, MODELS_CHANGED_EVENT, type ModelStatus } from "./api";
 import { AdminOnly, useAuth } from "./auth";
 import { ChangePasswordModal } from "./components/ChangePasswordModal";
+import { CollapseButton, useRememberedToggle } from "./components/CollapseButton";
 import { NewVaultModal } from "./components/NewVaultModal";
 import { VaultProvider } from "./vault";
 import { ChatPage } from "./pages/ChatPage";
@@ -40,6 +41,7 @@ function Shell() {
     return () => window.removeEventListener(MODELS_CHANGED_EVENT, loadModels);
   }, []);
 
+  const [navOpen, toggleNav] = useRememberedToggle("nav.open", true);
   const [creating, setCreating] = useState(false);
   const closeModal = useCallback(() => setCreating(false), []);
 
@@ -63,10 +65,12 @@ function Shell() {
 
   return (
     <VaultProvider vault={vault}>
-      <div className="app">
+      <div className={`app${navOpen ? "" : " nav-collapsed"}`}>
         <nav className="sidebar">
           <div className="brand">
-            <span className="logo" aria-hidden>℗</span> PhosphoChat
+            <span className="logo" aria-hidden>℗</span>
+            <span className="brand-name">PhosphoChat</span>
+            <CollapseButton collapsed={!navOpen} onToggle={toggleNav} label="navigation" className="nav-toggle" />
           </div>
           <label className="vault-select">
             <span className="muted small">Vault</span>

@@ -411,7 +411,7 @@ sequenceDiagram
     end
     M-->>A: answer text with citations
     API-->>UI: SSE text deltas, then done
-    API->>API: save the turn; fold older turns into the summary
+    API->>API: save the turn, fold older turns into the summary
 ```
 
 ### Chat history

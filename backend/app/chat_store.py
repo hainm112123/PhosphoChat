@@ -154,6 +154,14 @@ class ChatStore:
     def delete(self, conv: Conversation) -> None:
         self._q("DELETE FROM conversations WHERE id = ?", conv.id)
 
+    def count_vault(self, vault: str) -> int:
+        return self._q("SELECT COUNT(*) AS n FROM conversations WHERE vault = ?", vault)[0]["n"]
+
+    def delete_vault(self, vault: str) -> int:
+        """Every user's conversations in a vault (the vault was deleted). Returns how many."""
+        with self._lock:
+            return self._db.execute("DELETE FROM conversations WHERE vault = ?", (vault,)).rowcount
+
     def delete_older_than(self, days: int) -> int:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
         n = self._q("SELECT COUNT(*) AS n FROM conversations WHERE updated_at < ?", cutoff)[0]["n"]

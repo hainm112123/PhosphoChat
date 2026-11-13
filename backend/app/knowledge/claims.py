@@ -170,6 +170,27 @@ def sync_claims(vault: Vault) -> int:
     return len(rows)
 
 
+def remove_claims(vault_name: str) -> int:
+    """Delete a vault's CLAIMED edges (the vault was deleted). Returns how many."""
+    s = signor.get_settings()
+    records, _, _ = signor._get_driver().execute_query(
+        "MATCH ()-[r:CLAIMED {vault: $v}]->() DELETE r RETURN count(r) AS n", v=vault_name,
+        database_=s.neo4j_database)
+    return records[0]["n"] if records else 0
+
+
+def sweep_deleted_claims(deleted: list[str]) -> int:
+    """Delete CLAIMED edges of vaults deleted while Neo4j was down. Only the names given:
+    other deployments (or tests) may share the graph with vaults this one doesn't know."""
+    if not deleted:
+        return 0
+    s = signor.get_settings()
+    records, _, _ = signor._get_driver().execute_query(
+        "MATCH ()-[r:CLAIMED]->() WHERE r.vault IN $names DELETE r RETURN count(r) AS n",
+        names=deleted, database_=s.neo4j_database)
+    return records[0]["n"] if records else 0
+
+
 def safe_sync(vault: Vault) -> int | None:
     """sync_claims that never fails the caller (Neo4j down at startup or after a job)."""
     try:

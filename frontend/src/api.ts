@@ -245,6 +245,10 @@ export const api = {
     models_status?: Record<string, ModelStatus>; // admins only
   }>("/api/health"),
   vaults: () => request<{ name: string; pages: number; sources: number }[]>("/api/vaults"),
+  vaultUsage: (name: string) => request<VaultUsage>(`/api/vaults/${encodeURIComponent(name)}/usage`),
+  deleteVault: (name: string) =>
+    request<VaultDeleted>(`/api/vaults/${encodeURIComponent(name)}?confirm=${encodeURIComponent(name)}`,
+      { method: "DELETE" }),
   createVault: (name: string) =>
     request<{ name: string }>("/api/vaults", {
       method: "POST",
@@ -275,6 +279,24 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question, answer }),
     }),
+};
+
+/** What deleting a vault would remove (admins). */
+export type VaultUsage = {
+  name: string;
+  pages: number;
+  sources: number;
+  claims: number;
+  conversations: number; // all users
+  active_jobs: number;
+  is_default: boolean;
+};
+export type VaultDeleted = {
+  name: string;
+  trashed_to: string;
+  claims_removed: number | null; // null: the graph was offline (removed at the next start)
+  conversations_removed: number;
+  recreated: boolean; // the default vault comes back empty
 };
 
 export type ConversationSummary = {

@@ -68,6 +68,13 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .brand { font-weight: 700; font-size: 17px; padding: 4px 8px 14px; display: flex; gap: 8px; align-items: center; }
 .logo { color: var(--accent); font-size: 20px; }
 .vault-select { display: grid; gap: 4px; padding: 0 4px 12px; }
+.vault-row { display: flex; gap: 4px; align-items: center; }
+.vault-row select { min-width: 0; }
+.vault-gear { font-size: 16px; line-height: 1; padding: 6px; }
+.danger-zone { display: grid; gap: 8px; border: 1px solid var(--bad); border-radius: var(--radius); padding: 12px 14px; margin-top: 8px; }
+.danger-zone h3 { margin: 0; font-size: 15px; color: var(--bad); }
+.danger-zone ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.danger-zone .modal-actions { margin-top: 4px; }
 .nav-link { padding: 7px 10px; border-radius: 6px; color: var(--text); }
 .nav-link:hover { background: var(--border); text-decoration: none; }
 .nav-link.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }

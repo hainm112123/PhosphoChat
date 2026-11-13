@@ -42,6 +42,7 @@ class Settings(BaseSettings):
 
     vaults_dir: Path = Path("vaults")
     default_vault: str = "default"
+    vault_trash_days: int = 0          # delete trashed vaults (vaults/.trash) older than this; 0 = keep
 
     # Auth: the first admin is created from these on startup when no admin exists yet.
     admin_username: str = ""

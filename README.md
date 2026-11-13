@@ -185,6 +185,26 @@ Everyone has to sign in. There are two roles:
   everywhere.
 - **Chat:** history is per user, and only admins may pick a different model per chat request.
 
+## Deleting a vault
+
+Admins delete a vault from the **⚙** next to the vault selector. The dialog shows what will be
+removed, and you have to type the vault's name to confirm. Deleting is refused while a job is
+running on that vault.
+
+| What | Happens |
+|---|---|
+| The vault folder (sources, wiki, log, `relations.jsonl`, git history) | Moved to `vaults/.trash/<name>-<time>/`, so it can be restored |
+| Its claims in Neo4j (`CLAIMED` edges) | Removed. If the graph is offline, they're removed at the next start |
+| Every user's chat conversations in it | Deleted for good |
+| Its finished jobs and cached indexes | Dropped |
+
+If you delete the default vault (`DEFAULT_VAULT`), it's recreated empty right away.
+
+**Restore:** stop the app, move `vaults/.trash/<name>-<time>` back to `vaults/<name>`, delete the
+`DELETED.md` inside it, and start the app again. Startup puts the vault's claims back into the
+graph from `relations.jsonl`. The chats aren't restored. The trash is kept forever unless
+`VAULT_TRASH_DAYS` is set, in which case older trash is emptied at startup.
+
 ## Models
 
 A model is written `<provider>:<model-id>`. Roles (chat, wiki jobs, fact-check) can use different
@@ -463,6 +483,7 @@ changes and wins over the process environment for the keys it defines.
 | `CHAT_MODEL`, `JOB_MODEL`, `VERIFY_MODEL` | empty | Per-role models; empty uses `MODEL` (`VERIFY_MODEL` uses `JOB_MODEL`) |
 | `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` | `bolt://localhost:7687`, `neo4j`, –, `neo4j` | Graph connection |
 | `VAULTS_DIR`, `DEFAULT_VAULT` | `vaults`, `default` | Where vaults live; the vault created on first start |
+| `VAULT_TRASH_DAYS` | `0` | Empty deleted vaults (`vaults/.trash`) older than this at startup; 0 keeps them |
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | –, – | Bootstrap admin, created at startup when no active admin exists |
 | `DATA_DIR`, `SESSION_DAYS`, `COOKIE_SECURE` | `data`, `14`, `false` | Database location (users, logins, chat history); session length; https-only cookie |
 | `TOOL_OUTPUT_CHARS` | `8000` | Cap on any single tool result sent to the model |

@@ -89,6 +89,11 @@ def extract_mentions(text: str, index: NameIndex | None = None, limit: int = 50)
 _vault_cache: dict[str, tuple[tuple, str | None, dict[str, list[str]]]] = {}
 
 
+def forget(vault: Vault) -> None:
+    """Drop a deleted vault's entity index."""
+    _vault_cache.pop(str(vault.root), None)
+
+
 def _wiki_signature(vault: Vault) -> tuple:
     return tuple(sorted((p.name, p.stat().st_mtime_ns) for p in vault.wiki_dir.glob("*.md")))
 

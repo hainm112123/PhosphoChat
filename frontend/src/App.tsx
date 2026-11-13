@@ -1,12 +1,13 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { api, MODELS_CHANGED_EVENT, type ModelStatus } from "./api";
+import { api, MODELS_CHANGED_EVENT, type ModelStatus, type VaultDeleted } from "./api";
 import { AdminOnly, useAuth } from "./auth";
 import { ChangePasswordModal } from "./components/ChangePasswordModal";
 import { CollapseButton, useRememberedToggle } from "./components/CollapseButton";
 import { NewVaultModal } from "./components/NewVaultModal";
+import { VaultSettingsModal } from "./components/VaultSettingsModal";
 import { VaultProvider } from "./vault";
-import { ChatPage } from "./pages/ChatPage";
+import { ChatPage, forgetVaultChat } from "./pages/ChatPage";
 import { CapturePage } from "./pages/CapturePage";
 import { WikiPage } from "./pages/WikiPage";
 import { SourcesPage } from "./pages/SourcesPage";
@@ -23,6 +24,7 @@ function Shell() {
   const closePassword = useCallback(() => setChangingPassword(false), []);
   const [vaults, setVaults] = useState<string[]>([]);
   const [models, setModels] = useState<{ chat: string; job: string; verify: string } | null>(null);
+  const [defaultVault, setDefaultVault] = useState("default");
   const [graph, setGraph] = useState<{ ok: boolean; error?: string } | null>(null);
   const [modelStatus, setModelStatus] = useState<Record<string, ModelStatus> | null>(null);
 
@@ -30,7 +32,10 @@ function Shell() {
     api.vaults().then((vs) => setVaults(vs.map((v) => v.name))).catch(() => {});
     // Models can change on the admin Models page: reload them when it says so.
     const loadModels = () => {
-      api.config().then((c) => setModels(c.models)).catch(() => {});
+      api.config().then((c) => {
+        setModels(c.models);
+        setDefaultVault(c.default_vault);
+      }).catch(() => {});
       api.health().then((h) => {
         setGraph(h.graph);
         setModelStatus(h.models_status ?? null);
@@ -44,6 +49,15 @@ function Shell() {
   const [navOpen, toggleNav] = useRememberedToggle("nav.open", true);
   const [creating, setCreating] = useState(false);
   const closeModal = useCallback(() => setCreating(false), []);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+
+  function vaultDeleted(r: VaultDeleted) {
+    setSettingsOpen(false);
+    forgetVaultChat(r.name);
+    if (!r.recreated) setVaults((vs) => vs.filter((x) => x !== r.name));
+    navigate(`/${defaultVault}/chat`);
+  }
 
   function vaultCreated(name: string) {
     setCreating(false);
@@ -72,13 +86,19 @@ function Shell() {
             <span className="brand-name">PhosphoChat</span>
             <CollapseButton collapsed={!navOpen} onToggle={toggleNav} label="navigation" className="nav-toggle" />
           </div>
-          <label className="vault-select">
-            <span className="muted small">Vault</span>
-            <select value={vault} onChange={(e) => (e.target.value === "__new" ? setCreating(true) : navigate(`/${e.target.value}/chat`))}>
-              {(vaults.includes(vault) ? vaults : [vault, ...vaults]).map((v) => <option key={v} value={v}>{v}</option>)}
-              {isAdmin && <option value="__new">+ New vault...</option>}
-            </select>
-          </label>
+          <div className="vault-select">
+            <label htmlFor="vault-select" className="muted small">Vault</label>
+            <div className="vault-row">
+              <select id="vault-select" value={vault} onChange={(e) => (e.target.value === "__new" ? setCreating(true) : navigate(`/${e.target.value}/chat`))}>
+                {(vaults.includes(vault) ? vaults : [vault, ...vaults]).map((v) => <option key={v} value={v}>{v}</option>)}
+                {isAdmin && <option value="__new">+ New vault...</option>}
+              </select>
+              {isAdmin && (
+                <button type="button" className="icon-btn vault-gear" title="Vault settings" aria-label="Vault settings"
+                  onClick={() => setSettingsOpen(true)}>⚙</button>
+              )}
+            </div>
+          </div>
           {nav.map(([path, label]) => (
             <NavLink key={path} to={`/${vault}/${path}`} className="nav-link">{label}</NavLink>
           ))}
@@ -121,6 +141,7 @@ function Shell() {
         </main>
       </div>
       {creating && isAdmin && <NewVaultModal existing={vaults} onCreated={vaultCreated} onClose={closeModal} />}
+      {settingsOpen && isAdmin && <VaultSettingsModal vault={vault} onDeleted={vaultDeleted} onClose={closeSettings} />}
       {changingPassword && <ChangePasswordModal onClose={closePassword} />}
     </VaultProvider>
   );

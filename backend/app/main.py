@@ -33,10 +33,16 @@ async def lifespan(_: FastAPI):
     reg = registry()
     reg.migrate_all()  # drop per-vault AGENTS.md/CLAUDE.md/skills left by older versions
     reg.ensure(get_settings().default_vault)  # empty vault from the template on first run
-    from app.knowledge.claims import safe_sync
+    from app.knowledge.claims import safe_sync, sweep_deleted_claims
     for name in reg.names():  # restore CLAIMED edges (e.g. after the graph was rebuilt)
         safe_sync(reg.get(name))
+    try:  # edges of vaults deleted while Neo4j was down
+        sweep_deleted_claims(reg.deleted_names())
+    except Exception:  # noqa: BLE001 - graph offline: try again next start
+        pass
     s = get_settings()
+    if s.vault_trash_days > 0 and (n := reg.purge_trash(s.vault_trash_days)):
+        log.warning("Emptied %d deleted vault(s) older than %d days (VAULT_TRASH_DAYS).", n, s.vault_trash_days)
     store = auth_store()
     if store.ensure_admin(s.admin_username, s.admin_password):
         log.warning("Created admin '%s' from ADMIN_USERNAME/ADMIN_PASSWORD.", s.admin_username)

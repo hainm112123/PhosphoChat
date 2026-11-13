@@ -128,5 +128,13 @@ class JobManager:
     def for_vault(self, vault: str, limit: int = 30) -> list[Job]:
         return [j for j in reversed(self.jobs.values()) if j.vault == vault][:limit]
 
+    def active_for(self, vault: str) -> list[Job]:
+        return [j for j in self.jobs.values() if j.vault == vault and not j.done]
+
+    def forget_vault(self, vault: str) -> None:
+        """Drop a deleted vault's finished jobs (and their staged sources)."""
+        for job_id in [k for k, j in self.jobs.items() if j.vault == vault and j.done]:
+            del self.jobs[job_id]
+
 
 jobs = JobManager()

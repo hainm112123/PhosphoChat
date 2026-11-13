@@ -42,6 +42,12 @@ function setConv(vault: string, update: (c: Conversation) => Conversation) {
 }
 const subscribe = (l: () => void) => (listeners.add(l), () => listeners.delete(l));
 
+/** Forget the open chat of a vault that was deleted. */
+export function forgetVaultChat(vault: string) {
+  store.delete(vault);
+  listeners.forEach((l) => l());
+}
+
 const EXAMPLES = [
   "Which kinases phosphorylate ARX?",
   "What does PTPN1 dephosphorylate?",

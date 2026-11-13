@@ -14,9 +14,10 @@ import io
 import os
 import re
 import shutil
+import stat
 import subprocess
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -782,3 +783,75 @@ class VaultRegistry:
             return self.get(name)
         except KeyError:
             return self.create(name)
+
+    # ---- deleting: vaults move to base/.trash/<name>-<time>, never listed as vaults
+
+    @property
+    def trash_dir(self) -> Path:
+        return self.base / ".trash"
+
+    def trash(self, name: str, *, deleted_by: str = "") -> Path:
+        """Move a vault out of the way (recoverable: move the folder back and restart)."""
+        self.get(name)  # KeyError for an unknown vault
+        stamp = datetime.now().strftime(TRASH_STAMP)
+        target = self.trash_dir / f"{name}-{stamp}"
+        n = 1
+        while target.exists():
+            n += 1
+            target = self.trash_dir / f"{name}-{stamp}-{n}"
+        self.trash_dir.mkdir(parents=True, exist_ok=True)
+        _move(self.base / name, target)
+        self._vaults.pop(name, None)
+        (target / "DELETED.md").write_text(
+            f"# Deleted vault '{name}'\n\n"
+            f"Deleted {datetime.now().astimezone().isoformat(timespec='seconds')}"
+            f"{f' by {deleted_by}' if deleted_by else ''}.\n\n"
+            f"To restore: stop PhosphoChat, move this folder back to `vaults/{name}`"
+            " (delete this file), and start it again. The graph claims come back from"
+            " relations.jsonl at startup; chat conversations were deleted and don't.\n",
+            encoding="utf-8")
+        return target
+
+    def deleted_names(self) -> list[str]:
+        """Names of vaults in the trash that don't exist again."""
+        if not self.trash_dir.is_dir():
+            return []
+        names = {m.group(1) for p in self.trash_dir.iterdir() if (m := TRASH_NAME_RE.match(p.name))}
+        return sorted(names - set(self.names()))
+
+    def purge_trash(self, days: int) -> int:
+        """Delete trashed vaults older than `days` (by the time in their folder name)."""
+        if days <= 0 or not self.trash_dir.is_dir():
+            return 0
+        cutoff = datetime.now() - timedelta(days=days)
+        removed = 0
+        for p in self.trash_dir.iterdir():
+            m = TRASH_NAME_RE.match(p.name)
+            if not p.is_dir() or not m:
+                continue
+            if datetime.strptime(m.group(2), TRASH_STAMP) < cutoff:
+                _rmtree(p)
+                removed += 1
+        return removed
+
+
+TRASH_STAMP = "%Y%m%d-%H%M%S"
+TRASH_NAME_RE = re.compile(r"^(.+)-(\d{8}-\d{6})(?:-\d+)?$")
+
+
+def _writable(func, path, _exc) -> None:
+    """git marks its object files read-only, which Windows refuses to delete: clear and retry."""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
+def _rmtree(path: Path) -> None:
+    shutil.rmtree(path, onexc=_writable)
+
+
+def _move(src: Path, dst: Path) -> None:
+    try:
+        src.rename(dst)  # same disk (.trash is inside vaults/): instant and atomic
+    except OSError:
+        shutil.copytree(src, dst)
+        _rmtree(src)

@@ -76,7 +76,7 @@ def test_duplicate_capture_is_rejected_without_writing(client):
 
 def test_capture_fact_check_toggle_is_passed_to_the_job(client):
     cfg = client.get("/api/config").json()
-    assert "verify_captures" in cfg and set(cfg["models"]) == {"chat", "job", "verify"}
+    assert "verify_captures" in cfg and set(cfg["models"]) == {"chat", "job", "verify", "guard"}
     with job_agent().override(model=_broken_model()):
         off = client.post("/api/vaults/default/capture", data={"text": "a note", "verify": "false"})
         on = client.post("/api/vaults/default/capture", data={"text": "other note", "verify": "true"})

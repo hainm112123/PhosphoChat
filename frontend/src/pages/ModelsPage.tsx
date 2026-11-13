@@ -8,6 +8,7 @@ const ROLES: { role: ModelRole; title: string }[] = [
   { role: "chat", title: "Chat" },
   { role: "job", title: "Wiki jobs" },
   { role: "verify", title: "Fact-check" },
+  { role: "guard", title: "Topic check" },
 ];
 
 const CUSTOM = "__custom";

@@ -187,6 +187,12 @@ class ChatStore:
         return [self._turn(r) for r in self._q(
             "SELECT * FROM chat_turns WHERE conversation_id = ? ORDER BY seq", conv.id)]
 
+    def last_question(self, conv: Conversation) -> str | None:
+        """The latest question that was answered (for judging follow-ups)."""
+        rows = self._q("""SELECT question FROM chat_turns WHERE conversation_id = ? AND error IS NULL
+                          AND messages_json != '' ORDER BY seq DESC LIMIT 1""", conv.id)
+        return rows[0]["question"] if rows else None
+
     def unsummarized(self, conv: Conversation) -> list[Turn]:
         """Successful turns that the summary doesn't cover yet, oldest first."""
         rows = self._q("""SELECT * FROM chat_turns WHERE conversation_id = ? AND seq > ?

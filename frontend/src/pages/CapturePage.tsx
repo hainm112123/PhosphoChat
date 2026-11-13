@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Job } from "../api";
+import { api, HttpError, type Job } from "../api";
 import { JobProgress } from "../components/JobProgress";
 import { useVault } from "../vault";
 
@@ -13,6 +13,8 @@ export function CapturePage() {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // The server judged the source off-topic: the admin may capture it anyway.
+  const [offTopic, setOffTopic] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [current, setCurrent] = useState<Job | null>(null);
   const [recent, setRecent] = useState<Job[]>([]);
@@ -33,8 +35,8 @@ export function CapturePage() {
 
   const ready = mode === "text" ? text.trim() : mode === "url" ? url.trim() : file;
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(e: React.FormEvent | null, anyway = false) {
+    e?.preventDefault();
     if (!ready) return;
     const form = new FormData();
     if (mode === "text") form.set("text", text);
@@ -42,14 +44,18 @@ export function CapturePage() {
     if (mode === "file" && file) form.set("file", file);
     if (title.trim()) form.set("title", title.trim());
     form.set("verify", String(verify));
+    if (anyway) form.set("capture_anyway", "true");
     setSubmitting(true);
     setError(null);
+    setOffTopic(false);
     try {
       const { job } = await api.capture(vault, form);
       setCurrent(job);
       setText(""); setUrl(""); setFile(null); setTitle("");
     } catch (err) {
-      setError(String(err instanceof Error ? err.message : err));
+      const message = String(err instanceof Error ? err.message : err);
+      setError(message);
+      setOffTopic(err instanceof HttpError && err.status === 422 && message.startsWith("Off-topic"));
     } finally {
       setSubmitting(false);
     }
@@ -110,7 +116,15 @@ export function CapturePage() {
             </span>
           </span>
         </div>
-        {error && <div className="error">{error}</div>}
+        {error && (
+          <div className="error">
+            <span className="error-text">{error}</span>
+            {offTopic && (
+              <button type="button" className="btn btn-small btn-ghost btn-danger" disabled={submitting}
+                onClick={() => submit(null, true)}>Capture anyway</button>
+            )}
+          </div>
+        )}
       </form>
 
       {current && <JobProgress key={current.id} job={current} />}

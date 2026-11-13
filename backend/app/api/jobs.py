@@ -12,7 +12,10 @@ from sse_starlette import EventSourceResponse
 
 from app.api.deps import get_vault
 from app.auth.deps import require_admin
+from app.auth.store import User
+from app.config import get_settings
 from app.jobs.runner import jobs
+from app.knowledge import topic
 from app.tools.web import FetchError, fetch_url
 from app.vault.store import DuplicateSource, StagedSource, VaultError, extract_text
 
@@ -43,12 +46,24 @@ def _or_http(fn):
         raise HTTPException(400, str(e)) from e
 
 
-def _submit_capture(v, staged: StagedSource, verify: bool | None = None) -> dict:
-    """Reject duplicates now (fast feedback), then hand the staged source to a capture job.
-    Nothing is written to the vault here: the job saves the source inside its transaction.
-    `verify` turns the fact-check on/off for this capture (None = VERIFY_CAPTURES)."""
+async def _submit_capture(v, staged: StagedSource, verify: bool | None = None, *,
+                          topic_check: bool = True, admin: User | None = None) -> dict:
+    """Reject duplicates and off-topic sources now (fast feedback), then hand the staged
+    source to a capture job. Nothing is written to the vault here: the job saves the source
+    inside its transaction. `verify` turns the fact-check on/off for this capture (None =
+    VERIFY_CAPTURES). `topic_check=False` skips the topic check: "Capture anyway" (`admin` is
+    who chose it, noted in the job log) or Save to wiki."""
     _or_http(lambda: v.check_new_source(staged.source_url, staged.digest))
     params = {"title": staged.title, "source_url": staged.source_url}
+    if topic_check:
+        verdict = await topic.check_source(staged.title, staged.body)
+        if not verdict.on_topic:
+            raise HTTPException(422, f"Off-topic source: {verdict.reason or 'outside the scope'}. "
+                                     f"PhosphoChat keeps knowledge about {topic.SCOPE}.")
+        if verdict.by == "error":
+            params["topic_note"] = "The topic check was unavailable; this source was captured unchecked."
+    elif admin is not None and get_settings().topic_guard:  # "Capture anyway"
+        params["topic_note"] = f"Topic check overridden by {admin.username} (Capture anyway)."
     if verify is not None:
         params["verify"] = verify
     job = jobs.submit(v, "capture", params, payload=staged)
@@ -58,7 +73,8 @@ def _submit_capture(v, staged: StagedSource, verify: bool | None = None) -> dict
 @router.post("/vaults/{vault}/capture", status_code=202)
 async def capture(vault: str, url: str | None = Form(None), text: str | None = Form(None),
                   title: str | None = Form(None), file: UploadFile | None = File(None),
-                  verify: bool | None = Form(None)) -> dict:
+                  verify: bool | None = Form(None), capture_anyway: bool = Form(False),
+                  admin: User = Depends(require_admin)) -> dict:
     """Capture one source (URL, pasted text or file). The source is saved only if the whole
     capture succeeds."""
     v = get_vault(vault)
@@ -86,7 +102,7 @@ async def capture(vault: str, url: str | None = Form(None), text: str | None = F
         staged = StagedSource(title=title or Path(filename).stem, body=body,
                               source_url=f"upload:{filename}", content_type=ctype,
                               original=(filename, data))
-    return _submit_capture(v, staged, verify)
+    return await _submit_capture(v, staged, verify, topic_check=not capture_anyway, admin=admin)
 
 
 @router.post("/vaults/{vault}/chat/save", status_code=202)
@@ -95,8 +111,9 @@ async def save_answer(vault: str, body: SaveAnswer) -> dict:
     v = get_vault(vault)
     title = body.title or body.question.strip().splitlines()[0][:80] or "Chat answer"
     note = f"## Question\n\n{body.question.strip()}\n\n## Answer\n\n{body.answer.strip()}\n"
-    return _submit_capture(v, StagedSource(title=title, body=note, source_url="phosphochat:chat",
-                                           content_type="note"))
+    # Not topic-checked: the answer came from a chat, whose questions already were.
+    return await _submit_capture(v, StagedSource(title=title, body=note, source_url="phosphochat:chat",
+                                                 content_type="note"), topic_check=False)
 
 
 @router.post("/vaults/{vault}/jobs/{kind}", status_code=202)

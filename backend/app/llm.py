@@ -40,7 +40,7 @@ from app.config import get_settings
 # worth, so let the SDK keep waiting out 429s (it honours the retry-after the API sends).
 GROQ_MAX_RETRIES = 10
 
-Role = Literal["chat", "job", "verify"]
+Role = Literal["chat", "job", "verify", "guard"]
 Kind = Literal["cloud", "local", "compat", "passthrough"]
 
 
@@ -82,7 +82,7 @@ OXION_DEFAULT_BASE_URL = PROVIDERS["oxion"].default_url
 
 # --------------------------------------------------------------------------- roles
 
-ROLES: tuple[Role, ...] = ("chat", "job", "verify")
+ROLES: tuple[Role, ...] = ("chat", "job", "verify", "guard")
 
 
 def saved_models() -> dict[str, str]:
@@ -97,9 +97,10 @@ def saved_models() -> dict[str, str]:
 
 def _resolve(role: Role, saved: dict[str, str]) -> tuple[str, str]:
     """(model, source) for a role. Order: saved in app > role variable in .env > fallback.
-    CHAT_MODEL/JOB_MODEL fall back to MODEL; the verifier falls back to the job model."""
+    CHAT_MODEL/JOB_MODEL fall back to MODEL; the verifier falls back to the job model and the
+    topic check to the chat model."""
     s = get_settings()
-    env = {"chat": s.chat_model, "job": s.job_model, "verify": s.verify_model}
+    env = {"chat": s.chat_model, "job": s.job_model, "verify": s.verify_model, "guard": s.guard_model}
     if saved.get(role):
         return saved[role], "app"
     if env[role]:
@@ -107,6 +108,9 @@ def _resolve(role: Role, saved: dict[str, str]) -> tuple[str, str]:
     if role == "verify":
         job, src = _resolve("job", saved)
         return job, f"{src} (job model)"
+    if role == "guard":
+        chat, src = _resolve("chat", saved)
+        return chat, f"{src} (chat model)"
     return s.model, "env (MODEL)"
 
 

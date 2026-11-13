@@ -27,6 +27,7 @@ from app.auth.store import User
 from app.chat_store import Conversation, chat_store
 from app.config import get_settings
 from app.graph import network
+from app.knowledge import topic
 from app.knowledge.context import build_context
 from app.tools.agent_tools import Deps
 
@@ -96,6 +97,8 @@ class _Transcript:
             self.ui.setdefault("graphs", []).append({"nodes": data["nodes"], "edges": data["edges"]})
         elif ev == "done":
             self.ui["usage"] = data["usage"]
+        elif ev == "off_topic":
+            self.ui["refused"] = data["message"]
 
 
 @router.post("")
@@ -114,6 +117,12 @@ async def chat(vault: str, body: ChatIn, user: User = Depends(current_user)):
             return {"event": ev, "data": json.dumps(data, default=str)}
 
         yield {"event": "session", "data": json.dumps({"session_id": conv.id, "title": conv.title})}
+        verdict = await topic.check_question(body.message, store.last_question(conv))
+        if not verdict.on_topic:  # no lookups, no chat model; kept out of the model's history
+            reason = f" ({verdict.reason})" if verdict.reason else ""
+            yield event("off_topic", {"message": topic.REFUSAL + reason})
+            store.add_turn(conv, question=body.message, answer="", error=None, ui=log.ui, messages=[])
+            return
         consulted, context_text, net = await asyncio.to_thread(_prefetch, v, body.message)
         async with summary.lock(conv.id):  # a summary still being written for the last turn
             fresh = store.get(conv.id, user.id, vault) or conv

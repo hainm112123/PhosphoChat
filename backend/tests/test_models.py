@@ -101,14 +101,18 @@ async def test_catalog_lists_compat_endpoints_and_caches(providers):
 def test_saved_choice_beats_env_and_reset_falls_back(auth_db, monkeypatch):
     from app.config import get_settings
     s = get_settings()
-    for k, v in {"model": "groq:base", "chat_model": "groq:env-chat", "job_model": "", "verify_model": ""}.items():
+    for k, v in {"model": "groq:base", "chat_model": "groq:env-chat", "job_model": "", "verify_model": "", "guard_model": ""}.items():
         monkeypatch.setattr(s, k, v)
     assert llm.role_models()["chat"] == "groq:env-chat" and llm.role_sources()["chat"] == "env"
     auth_db.set_setting("model.chat", "ollama:qwen3:14b")
     auth_db.set_setting("model.job", "anthropic:claude-sonnet-5-5")
     assert llm.role_models() == {"chat": "ollama:qwen3:14b", "job": "anthropic:claude-sonnet-5-5",
-                                 "verify": "anthropic:claude-sonnet-5-5"}
-    assert llm.role_sources() == {"chat": "app", "job": "app", "verify": "app (job model)"}
+                                 "verify": "anthropic:claude-sonnet-5-5", "guard": "ollama:qwen3:14b"}
+    assert llm.role_sources() == {"chat": "app", "job": "app", "verify": "app (job model)",
+                                  "guard": "app (chat model)"}
+    auth_db.set_setting("model.guard", "groq:tiny")  # a saved topic-check model wins
+    assert llm.role_models()["guard"] == "groq:tiny" and llm.role_sources()["guard"] == "app"
+    auth_db.delete_setting("model.guard")
     assert llm.model_name("groq:override", "chat") == "groq:override"   # explicit override wins
     auth_db.delete_setting("model.chat")
     assert llm.role_models()["chat"] == "groq:env-chat"

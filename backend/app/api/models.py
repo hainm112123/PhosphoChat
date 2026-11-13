@@ -22,6 +22,7 @@ ROLE_HELP = {
     "chat": "Answers questions in Chat.",
     "job": "Capture, sync, lint and digest: writes the wiki.",
     "verify": "Fact-checks new pages against their source.",
+    "guard": "Checks that questions and sources are on topic, when the quick check can't tell.",
 }
 
 
@@ -29,6 +30,7 @@ class RoleChoices(BaseModel):
     chat: str | None = None    # None = leave as is; "" = reset to .env
     job: str | None = None
     verify: str | None = None
+    guard: str | None = None
 
 
 class TestIn(BaseModel):

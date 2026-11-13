@@ -40,7 +40,7 @@ when the container starts.
 | `NEO4J_PASSWORD` | yes | Password for the bundled Neo4j, 8+ characters; compose refuses to start without it |
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | first start | First admin account; without them nobody can sign in |
 | `GROQ_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` / `OXION_API_KEY` / `OPENAI_API_KEY` | the one your models use | Model provider keys |
-| `MODEL`, `CHAT_MODEL`, `JOB_MODEL`, `VERIFY_MODEL` | no | Which models to use (see Models) |
+| `MODEL`, `CHAT_MODEL`, `JOB_MODEL`, `VERIFY_MODEL`, `GUARD_MODEL` | no | Which models to use (see Models) |
 | `APP_PORT` | no (8000) | Host port for the web UI |
 | `COOKIE_SECURE` | no (false) | Set `true` once the site is behind https |
 | `VERIFY_CAPTURES`, `SESSION_DAYS`, `TOOL_OUTPUT_CHARS`, … | no | Behaviour; see Configuration below |
@@ -185,6 +185,39 @@ Everyone has to sign in. There are two roles:
   everywhere.
 - **Chat:** history is per user, and only admins may pick a different model per chat request.
 
+## Topic scope
+
+PhosphoChat keeps and answers knowledge about **kinases, substrates, proteins, drugs and
+diseases**. It also covers biology directly about them: genes, phosphosites, pathways and
+signalling, and cell biology or lab methods applied to these. The scope is enforced in four
+places:
+
+| Where | How | When it's off-topic |
+|---|---|---|
+| Chat question | Checked before any lookup or model call | A short refusal; nothing else runs, and the turn stays out of the model's history |
+| Capture | Checked before the job starts | Blocked with the reason; the admin can click **Capture anyway** (noted in the job log) |
+| Sync (files dropped into `sources/`) | Each new source is checked | Left unprocessed and listed in the job's warnings |
+| Agent prompts | A scope rule in `AGENTS.md` and the chat rules | A mixed question gets only its on-topic part answered |
+
+**How a check works:**
+- **Code check (free):** it looks for graph proteins and strong terms such as kinase,
+  phosphorylation, substrate, inhibitor, IC50, sites like `Ser81` or `S81`, and UniProt ids.
+  Greetings, questions about the app, and follow-ups like "why?" in an on-topic chat also pass.
+  This decides most inputs.
+- **Guard model:** asked only when the code finds no strong signal, e.g. "Which drugs treat
+  Parkinson's disease?" or "write a poem". It's its own role (`GUARD_MODEL`, defaulting to the
+  chat model), so a small fast model works. It answers with one plain line ("on-topic: …" or
+  "off-topic: …"), which any model can produce.
+- **Guard failures let the input through.** If the guard model errors or answers unclearly,
+  the input is allowed and a warning is logged; the scope rule in the prompts is the backstop.
+- **Save to wiki** isn't checked, because the answer came from a chat that already was.
+
+**Output** isn't checked by another model, because that would double the cost of every answer.
+Answers and pages are built from on-topic data (the wiki and the kinase databases) and must cite
+it. Jobs also warn about any written page that names no protein, drug, disease or kinase term.
+
+`TOPIC_GUARD=false` turns all of this off.
+
 ## Deleting a vault
 
 Admins delete a vault from the **⚙** next to the vault selector. The dialog shows what will be
@@ -273,6 +306,7 @@ Groq's free tier has tight tokens-per-minute limits. Every tool result is capped
 | Chat | `CHAT_MODEL` | Answers questions | Fast or cheap; answers can simply be asked again |
 | Wiki jobs | `JOB_MODEL` | Capture, sync, lint, digest | The strongest model; its output is saved in the wiki |
 | Fact-check | `VERIFY_MODEL` (falls back to `JOB_MODEL`) | Checks new pages against the source | A *different* model from the writer, so it doesn't repeat the writer's mistakes |
+| Topic check | `GUARD_MODEL` (falls back to `CHAT_MODEL`) | Decides whether a question or source is on topic, when the code check can't tell | Small and fast; it only answers one line |
 
 On Groq, rate limits apply per model, so splitting roles also gives each one its own token
 budget. The sidebar shows the chat and job models; hover over them to see all three.
@@ -328,6 +362,7 @@ tools, so there is no MCP server, no subprocess and no shell between the model a
 | [`jobs/runner.py`](backend/app/jobs/runner.py) | Runs each job as an asyncio task and keeps its event log so the UI can follow or replay progress. Jobs on the same vault wait for each other through the vault's lock. |
 | [`agents/chat.py`](backend/app/agents/chat.py) | Chat agent: read-only vault tools, graph tools and `load_skill`. Saved conversations are in [`chat_store.py`](backend/app/chat_store.py) and the running summary in [`agents/summary.py`](backend/app/agents/summary.py). |
 | [`agents/jobs.py`](backend/app/agents/jobs.py) | Job pipeline for capture, sync, lint and digest: deterministic pre-step, agent run with the skill as instructions, fact-check and one revision (capture/sync), deterministic post-step. |
+| [`knowledge/topic.py`](backend/app/knowledge/topic.py) | Topic gate for chat questions and sources: a code check first, then the guard model when it can't tell. |
 | [`agents/verify.py`](backend/app/agents/verify.py) | Fact-checker: gets the source text and the new pages in its prompt and returns the claims the source doesn't support. It has no tools. |
 | [`agents/runtime.py`](backend/app/agents/runtime.py) | Runs an agent and turns pydantic-ai stream events into small UI events (`text`, `tool_call`, `tool_result`, `usage`); turns provider errors into readable messages. |
 | [`prompts/`](backend/app/prompts/) | `AGENTS.md` (the LLM-Wiki schema and grounding rules) and `skills/{capture,sync,lint,digest,query}/SKILL.md`. One copy for every vault; read on each run. |
@@ -480,7 +515,8 @@ changes and wins over the process environment for the keys it defines.
 | Setting | Default | Purpose |
 |---|---|---|
 | `MODEL` | see `.env.example` | pydantic-ai model string (see Models above) |
-| `CHAT_MODEL`, `JOB_MODEL`, `VERIFY_MODEL` | empty | Per-role models; empty uses `MODEL` (`VERIFY_MODEL` uses `JOB_MODEL`) |
+| `CHAT_MODEL`, `JOB_MODEL`, `VERIFY_MODEL`, `GUARD_MODEL` | empty | Per-role models; empty uses `MODEL` (`VERIFY_MODEL` uses `JOB_MODEL`, `GUARD_MODEL` uses `CHAT_MODEL`) |
+| `TOPIC_GUARD`, `GUARD_SOURCE_CHARS` | `true`, `4000` | Keep chat and captures on topic (see Topic scope); how much of a source the guard model reads |
 | `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` | `bolt://localhost:7687`, `neo4j`, –, `neo4j` | Graph connection |
 | `VAULTS_DIR`, `DEFAULT_VAULT` | `vaults`, `default` | Where vaults live; the vault created on first start |
 | `VAULT_TRASH_DAYS` | `0` | Empty deleted vaults (`vaults/.trash`) older than this at startup; 0 keeps them |

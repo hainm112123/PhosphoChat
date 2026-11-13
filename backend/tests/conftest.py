@@ -63,6 +63,14 @@ def no_verify_by_default(monkeypatch):
     monkeypatch.setattr(get_settings(), "verify_captures", False)
 
 
+@pytest.fixture(autouse=True)
+def no_topic_guard_by_default(monkeypatch):
+    """Other tests chat and capture filler text ("hi", "first"); test_topic.py turns the
+    topic gate back on with a scripted guard model, so nothing reaches a real provider."""
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "topic_guard", False)
+
+
 @pytest.fixture(scope="session")
 def neo4j_ready():
     from app.graph import signor

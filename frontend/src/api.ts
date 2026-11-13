@@ -192,7 +192,7 @@ export const graphApi = {
   meta: () => request<{ kinase_groups: string[]; sources: string[]; links_per_source: Record<string, number> }>("/api/graph/meta"),
 };
 
-export type ModelRole = "chat" | "job" | "verify";
+export type ModelRole = "chat" | "job" | "verify" | "guard";
 export type CatalogProvider = {
   prefix: string;
   label: string;
@@ -313,6 +313,7 @@ export type TurnUi = {
   context?: ChatContext;
   graphs?: Network[];
   notice?: string;
+  refused?: string; // the question was off-topic: not answered
   usage?: { requests: number; input_tokens: number; output_tokens: number };
 };
 export type ConversationDetail = Omit<ConversationSummary, "turns"> & {

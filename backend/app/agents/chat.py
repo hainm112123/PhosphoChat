@@ -33,6 +33,8 @@ you cannot change the vault.
 - For a pure database question with nothing in the wiki, a short answer with a table is fine.
 - Keep answers short; use a small table for lists of enzymes/targets.
 - load_skill("query") has the detailed answering rules if you need them.
+- Stay in scope (kinases, substrates, proteins, drugs, diseases and biology directly about
+  them): answer only the in-scope part of a mixed question and say the rest is out of scope.
 - Never write code, scripts or Cypher.
 """
 

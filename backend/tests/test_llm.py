@@ -26,16 +26,19 @@ def test_oxion_without_key_explains(monkeypatch):
 def test_role_models_fall_back(monkeypatch):
     from app.config import get_settings
     s = get_settings()
-    for k, v in {"model": "groq:base", "chat_model": "", "job_model": "", "verify_model": ""}.items():
+    for k, v in {"model": "groq:base", "chat_model": "", "job_model": "", "verify_model": "", "guard_model": ""}.items():
         monkeypatch.setattr(s, k, v)
-    assert llm.role_models() == {"chat": "groq:base", "job": "groq:base", "verify": "groq:base"}
+    assert llm.role_models() == {"chat": "groq:base", "job": "groq:base", "verify": "groq:base", "guard": "groq:base"}
 
     monkeypatch.setattr(s, "job_model", "groq:big")
-    assert llm.role_models() == {"chat": "groq:base", "job": "groq:big", "verify": "groq:big"}
+    assert llm.role_models() == {"chat": "groq:base", "job": "groq:big", "verify": "groq:big", "guard": "groq:base"}
 
     monkeypatch.setattr(s, "chat_model", "groq:small")
     monkeypatch.setattr(s, "verify_model", "groq:other")
-    assert llm.role_models() == {"chat": "groq:small", "job": "groq:big", "verify": "groq:other"}
+    assert llm.role_models() == {"chat": "groq:small", "job": "groq:big", "verify": "groq:other",
+                                 "guard": "groq:small"}  # the topic check follows the chat model
+    monkeypatch.setattr(s, "guard_model", "groq:tiny")
+    assert llm.role_models()["guard"] == "groq:tiny"
     assert llm.model_name("anthropic:x", "job") == "anthropic:x"  # explicit override wins
 
 

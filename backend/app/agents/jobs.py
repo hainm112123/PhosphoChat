@@ -23,9 +23,10 @@ from app import prompts
 from app.agents.runtime import JobFailed, explain_error, is_bad_tool_call, stream_run
 from app.agents.verify import Issue, verify_pages
 from app.config import get_settings
+from app.knowledge import topic
 from app.llm import model_name
 from app.tools.agent_tools import Deps, graph_toolset, vault_read_toolset, vault_write_toolset
-from app.vault.store import StagedSource, Vault, page_links
+from app.vault.store import StagedSource, Vault, page_links, split_frontmatter
 
 JobKind = Literal["capture", "sync", "lint", "digest"]
 Emit = Callable[[dict], Awaitable[None]]
@@ -76,8 +77,11 @@ def _iso_week_name(d: date) -> str:
     return f"{y}-w{w:02d}-recap"
 
 
-def prepare(vault: Vault, kind: JobKind, params: dict) -> tuple[str | None, dict]:
-    """Return (prompt, context for the post-step). prompt=None means nothing to do."""
+def prepare(vault: Vault, kind: JobKind, params: dict,
+            skip: dict[str, str] | None = None) -> tuple[str | None, dict]:
+    """Return (prompt, context for the post-step). prompt=None means nothing to do.
+    `skip`: sync sources judged off-topic ({name: reason}), left unprocessed."""
+    skip = skip or {}
     if kind == "capture":
         name = params["source"]
         src = next((s for s in vault.list_sources() if s["name"] == name), {})
@@ -88,15 +92,18 @@ def prepare(vault: Vault, kind: JobKind, params: dict) -> tuple[str | None, dict
 
     if kind == "sync":
         prepared = vault.prepare_dropped_sources()
-        todo = vault.unprocessed_sources()
+        todo = [s for s in vault.unprocessed_sources() if s not in skip]
         if not todo:
-            return None, {"report": "Nothing to sync: every source already appears in log.md."}
+            report = "Nothing to sync: every source already appears in log.md."
+            if skip:
+                report = f"Nothing to sync: the {len(skip)} new source(s) look off-topic."
+            return None, {"report": report, "skipped": skip}
         batch = todo[:10]
         more = f"\n({len(todo) - len(batch)} more remain for the next sync.)" if len(todo) > 10 else ""
         return ("Task: sync.\nUnprocessed sources (frontmatter already prepared):\n"
                 + "".join(f"- {s}\n" for s in batch) + more
                 + "\nFollow the sync skill, then return the report.",
-                {"sources": batch, "prepared": prepared})
+                {"sources": batch, "prepared": prepared, "skipped": skip})
 
     if kind == "lint":
         findings = vault.lint_mechanical()
@@ -156,13 +163,16 @@ def finish(vault: Vault, kind: JobKind, deps: JobContext, ctx: dict, report: Job
             vault.upsert_index(n, vault.page_meta(n).get("summary", ""),
                                "Recaps" if n.endswith("-recap") else "Pages")
 
-    warnings = []
+    warnings = _off_topic_warnings(ctx.get("skipped"))
     names = set(vault.page_names())
     for n in deps.touched():
-        links, _ = page_links(vault.read_page(n))
+        page = vault.read_page(n)
+        links, _ = page_links(page)
         bad = sorted(l for l in links if l not in names)
         if bad:
             warnings.append(f"[[{n}]] links to missing pages: {', '.join(bad)}")
+        if n != "lint-report" and not topic.has_topic_terms(split_frontmatter(page)[1]):
+            warnings.append(f"[[{n}]] names no protein, drug, disease or kinase term; check it belongs here.")
 
     fmt = lambda xs: ", ".join(f"[[{x}]]" for x in xs) or "none"  # noqa: E731
     lines: list[str] = []
@@ -170,6 +180,8 @@ def finish(vault: Vault, kind: JobKind, deps: JobContext, ctx: dict, report: Job
         lines.append(f"Source: sources/{ctx['sources'][0]}")
     elif kind == "sync":
         lines.append("Sources processed: " + ", ".join(ctx["sources"]))
+        if ctx.get("skipped"):  # not named, so the next sync looks at them again
+            lines.append(f"Skipped as off-topic: {len(ctx['skipped'])} source(s)")
     if kind in ("capture", "sync"):
         lines += [f"Pages created: {fmt(deps.created)}", f"Pages updated: {fmt(deps.updated)}",
                   f"Contradictions: {fmt([c for c in report.contradictions if c in names])}"]
@@ -204,6 +216,34 @@ def finish(vault: Vault, kind: JobKind, deps: JobContext, ctx: dict, report: Job
                        for c in deps.claims]}
 
 
+def _off_topic_warnings(skipped: dict[str, str] | None) -> list[str]:
+    return [f"sources/{name} looks off-topic ({reason or 'outside the scope'}), so it wasn't "
+            "processed. To include it anyway, move it out of sources/ and capture it with "
+            "'Capture anyway'." for name, reason in (skipped or {}).items()]
+
+
+async def _off_topic_sources(vault: Vault, emit: Emit, batch: int = 10) -> dict[str, str]:
+    """Sync: the new sources the topic check rejects, checked in order until a batch of
+    on-topic ones is found (the rest wait for the next sync)."""
+    if not get_settings().topic_guard:
+        return {}
+    vault.prepare_dropped_sources()  # notes for dropped files, so their text can be read
+    skipped, accepted = {}, 0
+    for name in vault.unprocessed_sources():
+        if accepted >= batch:
+            break
+        meta, body = split_frontmatter((vault.sources_dir / name).read_text(encoding="utf-8", errors="replace"))
+        verdict = await topic.check_source(str(meta.get("title") or name), body)
+        if verdict.on_topic:
+            accepted += 1
+            if verdict.by == "error":
+                await emit({"type": "info", "message": f"Topic check unavailable for {name}; processing it unchecked."})
+        else:
+            skipped[name] = verdict.reason
+            await emit({"type": "info", "message": f"Skipping {name}: looks off-topic ({verdict.reason})."})
+    return skipped
+
+
 # --------------------------------------------------------------------------- run
 
 async def run_job(vault: Vault, kind: JobKind, params: dict, emit: Emit,
@@ -227,11 +267,15 @@ async def run_job(vault: Vault, kind: JobKind, params: dict, emit: Emit,
                 if staged.original:
                     created_files.append(vault.sources_dir / (Path(params["source"]).stem
                                                               + Path(staged.original[0]).suffix.lower()))
-            prompt, ctx = prepare(vault, kind, params)
+            if kind == "capture" and params.get("topic_note"):
+                await emit({"type": "info", "message": params["topic_note"]})
+            skip = await _off_topic_sources(vault, emit) if kind == "sync" else None
+            prompt, ctx = prepare(vault, kind, params, skip)
             if prompt is None:
                 await emit({"type": "info", "message": ctx["report"]})
                 return {"report": ctx["report"], "pages_created": [], "pages_updated": [],
-                        "warnings": [], "commit": vault.commit(f"{kind}: prepare")}
+                        "warnings": _off_topic_warnings(ctx.get("skipped")),
+                        "commit": vault.commit(f"{kind}: prepare")}
             model = params.get("model")
             await emit({"type": "info", "message": f"Running {kind} with {model_name(model, 'job')}"})
             report, messages = await _agent_turn(prompt, deps, model, emit)

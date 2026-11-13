@@ -24,6 +24,7 @@ type Msg = {
   graphs?: Network[]; // networks from graph tools, drawn under the answer
   context?: ChatContext; // what was looked up before the model answered
   notice?: string; // e.g. the answer was restarted after an invalid tool call
+  refused?: string; // off-topic question: not answered
 };
 type Conversation = { session: string | null; messages: Msg[]; loading?: boolean; missing?: string };
 
@@ -66,6 +67,7 @@ function toMessages(d: ConversationDetail): Msg[] {
     {
       role: "assistant", text: t.answer, tools: t.ui.tools ?? [], error: t.error ?? undefined,
       usage: t.ui.usage, graphs: t.ui.graphs, context: t.ui.context, notice: t.ui.notice,
+      refused: t.ui.refused,
     },
   ]);
 }
@@ -142,6 +144,7 @@ export function ChatPage() {
           }));
         else if (event === "context") patchLast(vault, (m) => ({ ...m, context: data }));
         else if (event === "reset") patchLast(vault, (m) => ({ ...m, text: "", notice: data.message }));
+        else if (event === "off_topic") patchLast(vault, (m) => ({ ...m, pending: false, refused: data.message }));
         else if (event === "graph")
           patchLast(vault, (m) => ({ ...m, graphs: [...(m.graphs ?? []), { nodes: data.nodes, edges: data.edges }] }));
         else if (event === "done") patchLast(vault, (m) => ({ ...m, pending: false, usage: data.usage }));
@@ -226,6 +229,7 @@ export function ChatPage() {
                     ))}
                   </details>
                 )}
+                {m.refused && <div className="refused">{m.refused}</div>}
                 {m.text ? <Markdown text={m.text} vault={vault} pages={pages} />
                   : m.pending && <div className="muted pulse">{m.tools.length ? "Reading results..." : "Thinking..."}</div>}
                 {m.notice && <div className="muted small">{m.notice}</div>}

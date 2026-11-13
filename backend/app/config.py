@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     chat_model: str = ""
     job_model: str = ""
     verify_model: str = ""
+    guard_model: str = ""              # topic check; empty uses the chat model
 
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_username: str = "neo4j"
@@ -51,6 +52,8 @@ class Settings(BaseSettings):
     session_days: int = 14
     cookie_secure: bool = False        # set true when served over https
 
+    topic_guard: bool = True           # only kinases, substrates, proteins, drugs, diseases
+    guard_source_chars: int = 4000     # start of a source the topic check reads
     tool_output_chars: int = 8000
     verify_captures: bool = False       # fact-check capture/sync pages against their sources
     verify_source_chars: int = 12000    # source text sent to the fact-checker

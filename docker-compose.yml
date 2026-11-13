@@ -50,8 +50,9 @@ services:
     build: .
     ports:
       - "${APP_PORT:-8000}:8000"
-    # Model keys, MODEL / CHAT_MODEL / JOB_MODEL / VERIFY_MODEL, ADMIN_USERNAME / ADMIN_PASSWORD,
-    # VERIFY_CAPTURES, COOKIE_SECURE ... come from .env.
+    # Model keys, MODEL / CHAT_MODEL / JOB_MODEL / VERIFY_MODEL / GUARD_MODEL,
+    # ADMIN_USERNAME / ADMIN_PASSWORD, VERIFY_CAPTURES, TOPIC_GUARD, CHAT_KEEP_TURNS,
+    # CHAT_RETENTION_DAYS, VAULT_TRASH_DAYS, COOKIE_SECURE ... come from .env.
     env_file:
       - path: .env
         required: false
@@ -69,8 +70,8 @@ services:
     #   - groq_api_key
     #   - admin_password
     volumes:
-      - vaults:/data/vaults
-      - appdb:/data/db
+      - vaults:/data/vaults   # vaults, and deleted ones in vaults/.trash
+      - appdb:/data/db        # users, logins, model choices and saved chats (keep private)
     # Lets the container reach model servers running on the host (Ollama desktop app,
     # LM Studio...) as host.docker.internal, on Linux as well as Docker Desktop.
     extra_hosts:

@@ -17,6 +17,27 @@ The SIGNOR graph tools from the old `mcp/` server run inside the backend, not as
 process. The agents get only narrow tools: no shell, no code and no Cypher, so they can't wander
 off and write scripts.
 
+## Contents
+
+- [Run with Docker](#run-with-docker)
+- [Run for development](#run-for-development)
+- [Data sources](#data-sources)
+- [Wiki + graph together](#wiki--graph-together)
+- [Users and roles](#users-and-roles)
+- [Topic scope](#topic-scope)
+- [Deleting a vault](#deleting-a-vault)
+- [Models](#models)
+- [Architecture](#architecture)
+  - [Components](#components)
+  - [Modules](#modules)
+  - [Vault layout](#vault-layout)
+  - [Chat: one question](#chat-one-question)
+  - [Chat history](#chat-history)
+  - [Capture: one source into the wiki](#capture-one-source-into-the-wiki)
+  - [Design rules](#design-rules)
+- [Tests](#tests)
+- [Prototype limits](#prototype-limits)
+
 ## Run with Docker
 
 The image holds the backend and the built UI. `docker compose` adds Neo4j and a one-time loader

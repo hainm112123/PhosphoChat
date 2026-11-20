@@ -274,4 +274,6 @@ def connection_hint(e: BaseException) -> str | None:
 
 def model_settings() -> ModelSettings:
     # Low temperature: the agents edit a knowledge base and cite records, not write fiction.
-    return ModelSettings(temperature=0.2, max_tokens=8192)
+    # A timeout per request: a stalled provider fails fast and the step is retried, instead of
+    # hanging a job for the SDK's default (10 minutes or more).
+    return ModelSettings(temperature=0.2, max_tokens=8192, timeout=get_settings().model_timeout_seconds)

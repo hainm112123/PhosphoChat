@@ -34,8 +34,10 @@ async def lifespan(_: FastAPI):
     reg.migrate_all()  # drop per-vault AGENTS.md/CLAUDE.md/skills left by older versions
     reg.ensure(get_settings().default_vault)  # empty vault from the template on first run
     from app.knowledge.claims import safe_sync, sweep_deleted_claims
-    for name in reg.names():  # restore CLAIMED edges (e.g. after the graph was rebuilt)
-        safe_sync(reg.get(name))
+    for name in reg.names():
+        if reg.get(name).recover_interrupted_job():
+            log.warning("Vault '%s': rolled back a job that was interrupted (e.g. the server stopped mid-capture).", name)
+        safe_sync(reg.get(name))  # restore CLAIMED edges (e.g. after the graph was rebuilt)
     try:  # edges of vaults deleted while Neo4j was down
         sweep_deleted_claims(reg.deleted_names())
     except Exception:  # noqa: BLE001 - graph offline: try again next start

@@ -16,7 +16,7 @@ from app.graph.signor import (
 )
 
 Direction = Literal["regulators", "targets", "both"]
-GRAPH_TOOLS = {"regulators_of", "targets_of", "sites_of", "find_paths", "get_entity", "get_interaction"}
+GRAPH_TOOLS = {"interactions", "regulators_of", "targets_of", "sites_of", "find_paths", "get_entity", "get_interaction"}
 
 
 def _edge_rows(ids: list[str], direction: Direction, mechanism: str | None, filters: dict,
@@ -130,6 +130,8 @@ def from_tool_result(tool: str, data: dict) -> dict | None:
                          "signor_id": item.get("signor_id"), "n_pmids": len(item.get("pmids") or [])})
 
     centre = ids[0] if ids else None
+    if tool == "interactions":
+        tool = "regulators_of" if data.get("direction", "in") == "in" else "targets_of"
     if tool == "regulators_of":
         for it in data.get("results", []):
             add(it.get("enzyme_id"), it.get("isoform") or centre, it)

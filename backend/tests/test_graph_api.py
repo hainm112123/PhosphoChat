@@ -40,18 +40,18 @@ def test_graph_api_requires_login_and_works(make_client):
 
 
 def _tool_then_answer():
-    """A chat model that calls regulators_of('TDP1') once, then answers."""
+    """A chat model that calls interactions('TDP1') once, then answers."""
     def calls(messages):
         return not any(isinstance(m, ModelResponse) for m in messages)
 
     def fn(messages, info: AgentInfo):
         if calls(messages):
-            return ModelResponse(parts=[ToolCallPart("regulators_of", {"target": "TDP1"})])
+            return ModelResponse(parts=[ToolCallPart("interactions", {"protein": "TDP1"})])
         return ModelResponse(parts=[TextPart("ATM and PRKDC (SIGNOR).")])
 
     async def stream(messages, info: AgentInfo):
         if calls(messages):
-            yield {0: DeltaToolCall(name="regulators_of", json_args=json.dumps({"target": "TDP1"}))}
+            yield {0: DeltaToolCall(name="interactions", json_args=json.dumps({"protein": "TDP1"}))}
         else:
             yield "ATM and PRKDC (SIGNOR)."
     return FunctionModel(fn, stream_function=stream)
@@ -64,6 +64,6 @@ def test_chat_stream_includes_a_graph(make_client):
             raw = r.read().decode().replace("\r\n", "\n")
     graphs = [json.loads(b.split("data: ", 1)[1]) for b in raw.split("\n\n") if b.startswith("event: graph")]
     # one network from the pre-fetched context, one from the model's own tool call
-    assert [g["tool"] for g in graphs] == ["context", "regulators_of"]
+    assert [g["tool"] for g in graphs] == ["context", "interactions"]
     for g in graphs:
         assert {"ATM", "PRKDC", "TDP1"} <= {n["name"] for n in g["nodes"]}

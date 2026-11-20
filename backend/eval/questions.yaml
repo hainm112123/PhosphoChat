@@ -1,0 +1,129 @@
+# Pilot question set. Facts are taken from the pilot papers' text (eval/results/text/) or, for
+# type "database", computed live from Neo4j by score_chat.py (gold: kinases/targets in the graph).
+#
+# type: database | paper | cross | claims | negative | offtopic
+
+- id: D1
+  type: database
+  question: Which kinases phosphorylate RB1?
+  gold: {kind: regulators, protein: RB1}
+
+- id: D2
+  type: database
+  question: Which kinases phosphorylate BAD?
+  gold: {kind: regulators, protein: BAD}
+
+- id: D3
+  type: database
+  question: Which kinases phosphorylate GSK3B?
+  gold: {kind: regulators, protein: GSK3B}
+
+- id: D4
+  type: database
+  question: What are the main substrates of AURKA?
+  gold: {kind: targets, protein: AURKA}
+
+- id: D5
+  type: database
+  question: Does CDK1 phosphorylate RB1, and at which sites?
+  gold: {kind: sites, enzyme: CDK1, target: RB1}
+  key_facts:
+    - Yes, CDK1 phosphorylates RB1 (reported by SIGNOR, PhosphoSitePlus, EPSD and iPTMNet).
+    - Sites include Ser249, Thr252, Thr373, Ser807 and Ser811.
+
+- id: P1
+  type: paper
+  paper: s41467-025-59779-y.pdf
+  question: What is benchmarKIN, and what did its evaluation find about kinase activity inference methods?
+  key_facts:
+    - benchmarKIN is an R package for evaluating kinase activity inference methods.
+    - It uses classical perturbation experiments and a new tumor-based benchmark built on multi-omics data.
+    - Most computational inference methods perform similarly.
+    - The choice of kinase-substrate library matters most; a combination of manually curated libraries performs best.
+    - Adding predicted targets from NetworKIN further improves performance in the tumor-based evaluation.
+
+- id: P2
+  type: paper
+  paper: nature18003.pdf
+  question: In the CPTAC breast cancer proteogenomics study, which amplicon-associated kinases besides ERBB2 were highly phosphorylated?
+  key_facts:
+    - CDK12, PAK1, PTK2, RIPK2 and TLK2 were amplicon-associated highly phosphorylated kinases.
+
+- id: P3
+  type: paper
+  paper: nature18003.pdf
+  question: What did the breast cancer study connect the loss of CETN3 and SKP1 on chromosome 5q to?
+  key_facts:
+    - 5q deletion is characteristic of basal-like breast cancer.
+    - Loss of CETN3 and SKP1 was connected to elevated expression of EGFR.
+    - SKP1 loss was also connected to increased SRC tyrosine kinase.
+
+- id: P4
+  type: paper
+  paper: 1495.pdf
+  question: How does cold ischemia affect phosphotyrosine signaling measured in surgical tumor specimens?
+  key_facts:
+    - Cold ischemia changes tumor pTyr networks rapidly, within 5 minutes of resection.
+    - Up to 50% of pTyr sites changed by more than 2-fold.
+    - Spatially distinct biopsies of the same tumor differed as much as ischemia time did, despite uniform protein expression.
+    - The effects varied between patients; prospective collection protocols are needed to preserve in vivo signaling.
+
+- id: P5
+  type: paper
+  paper: mcdermott-2020-proteogenomic-characterization-ovarian-hgsc-implicates.pdf
+  question: Which kinases showed increased activity in ovarian HGSC tumors compared with normal precursor tissue, and how was this inferred?
+  key_facts:
+    - Kinase activity was inferred from substrate phosphorylation with KSEA.
+    - Increased activity of CDK1, CDK2, CDK4, CDK7, the mitotic kinase AURKA and CLK1.
+    - CDK-RB and AURKA pathways are targetable by FDA-approved inhibitors.
+    - Samples were collected under tight ischemic control.
+
+- id: P6
+  type: paper
+  paper: 1-s2.0-S2405471220302428-main.pdf
+  question: How well can protein and phosphoprotein levels in tumors be predicted from genomic and transcriptomic data?
+  key_facts:
+    - Assessed through the NCI-CPTAC DREAM proteogenomics challenge (crowdsourced, blinded).
+    - Ensemble models performed best.
+    - Proteins in metabolic pathways were predicted best and proteins in complexes worst.
+    - Performance was limited overall; (phospho)proteomics cannot yet be replaced by genomic and transcriptomic profiling.
+
+- id: X1
+  type: cross
+  question: Across the papers in my library, how is kinase activity inferred from phosphoproteomics data, and what limits it?
+  key_facts:
+    - Kinase activity is inferred from the phosphorylation of known substrates using kinase-substrate libraries (e.g. KSEA).
+    - Few phosphosites can be attributed to an upstream kinase, which limits coverage; library choice matters (benchmarKIN).
+    - McDermott et al. used KSEA to find CDK1/2/4/7, AURKA and CLK1 more active in HGSC.
+
+- id: X2
+  type: cross
+  question: What do my sources say about sample handling and data quality problems in tumor phosphoproteomics?
+  key_facts:
+    - Cold ischemia alters phosphotyrosine sites within minutes, and intratumoral heterogeneity is large (Gajadhar et al.).
+    - The ovarian HGSC study collected samples under tight ischemic control to avoid such artefacts.
+
+- id: C1
+  type: claims
+  question: Which kinase-substrate relations recorded from my sources are not yet in any database?
+  key_facts:
+    - Lists the claims with status "new", each with its source; says none if there are none.
+
+- id: C2
+  type: claims
+  question: What do my sources and the databases each say about CDK1 phosphorylating RB1?
+  key_facts:
+    - The databases report CDK1 -> RB1 phosphorylation at several sites (SIGNOR and others).
+    - Says what, if anything, the user's sources say about it, and whether they agree.
+
+- id: N1
+  type: negative
+  question: What do my sources say about LRRK2 phosphorylation of Rab GTPases?
+  key_facts:
+    - The user's sources/wiki contain nothing on LRRK2 and Rab GTPases; the answer should say so rather than invent.
+
+- id: O1
+  type: offtopic
+  question: Plan a three-day sightseeing trip to Da Nang for me.
+  key_facts:
+    - Refused as outside PhosphoChat's scope.

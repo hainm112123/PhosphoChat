@@ -108,7 +108,7 @@ def _resolve(name_or_id: str) -> list[dict]:
         raise ValueError("Empty name. Pass a gene symbol (e.g. 'TP53') or UniProt ID.")
     if "_ph" in q:
         raise ValueError(f"'{q}' is a phosphosite, not a protein. Pass the protein "
-                         f"('{q.split('_ph')[0]}') and use sites_of to list its sites.")
+                         f"('{q.split('_ph')[0]}') and give the site separately.")
     rows = _run(f"""
         MATCH (n:Entity)
         WHERE toUpper(n.id) = toUpper($q) OR toUpper(n.name) = toUpper($q)
@@ -348,7 +348,7 @@ def get_interaction(enzyme: Name, target: Name) -> dict:
         ORDER BY m.mechanism""", e=[x["id"] for x in e], t=[x["id"] for x in t])
     if not rows:
         raise ValueError(f"No modification of {t[0]['name']} by {e[0]['name']} in the graph. "
-                         "Use regulators_of / targets_of to see what is there.")
+                         "Use interactions to see what is there.")
     out = []
     for r in rows:
         records = json.loads(r.pop("records") or "[]")

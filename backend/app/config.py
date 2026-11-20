@@ -54,6 +54,16 @@ class Settings(BaseSettings):
 
     topic_guard: bool = True           # only kinases, substrates, proteins, drugs, diseases
     guard_source_chars: int = 4000     # start of a source the topic check reads
+    max_upload_mb: int = 60            # largest file accepted by capture
+    model_timeout_seconds: int = 300   # per model request; a stalled request is retried
+    capture_part_chars: int = 9000     # code reads every source in parts of this size
+    capture_notes_chars: int = 7000    # reading notes handed to the writer, per job
+    # Sections the reader skips (a regex matched against `## ` headings, case-insensitive).
+    capture_skip_sections: str = (
+        r"references?|bibliography|acknowledge?ments?|author contributions?|contributions|"
+        r"(declaration of )?(competing|conflicts? of) interests?|declarations?|funding|"
+        r"data (and code )?availability|supplement(al|ary)( (information|materials?|data|figures|tables))?|"
+        r"(online |materials and |star\W?)?methods|experimental procedures|key resources table")
     tool_output_chars: int = 8000
     verify_captures: bool = False       # fact-check capture/sync pages against their sources
     verify_source_chars: int = 12000    # source text sent to the fact-checker

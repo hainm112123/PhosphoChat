@@ -107,3 +107,28 @@ def test_kinase_groups_on_entities():
     assert signor.get_entity("SRC")["kinase_group"] == "TK"
     assert signor.get_entity("CDK2")["kinase_group"] == "CMGC"
     assert signor.get_entity("TP53")["kinase_group"] is None
+
+
+# --------------------------------------------------------------------------- the chat model's tools
+
+def test_interactions_in_and_out():
+    from app.graph import agent_tools as g
+    r = g.interactions("ARX")
+    assert r["direction"] == "in" and any(x["enzyme"] == "PRKCA" for x in r["results"])
+    assert len(r["results"]) <= g.LIMIT
+    assert g.interactions("PTPN1", "out")["results"]
+
+
+def test_interactions_at_one_site():
+    from app.graph import agent_tools as g
+    r = g.interactions("ARX", site="S174")
+    assert r["results"] and all("Ser174" in x["sites"] for x in r["results"])
+    with pytest.raises(ValueError):
+        g.interactions("ARX", site="nonsense")
+
+
+def test_interactions_result_draws_a_network():
+    from app.graph import agent_tools as g
+    from app.graph import network
+    net = network.from_tool_result("interactions", g.interactions("ARX"))
+    assert net and any(n["name"] == "PRKCA" for n in net["nodes"])

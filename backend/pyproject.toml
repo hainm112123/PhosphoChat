@@ -15,7 +15,7 @@ dependencies = [
     "httpx>=0.28",
     "trafilatura>=2.3",
     "pyyaml>=6",
-    "pypdf>=6.21",
+    "pymupdf>=1.26",  # AGPL-3.0: PDF text with layout and fonts
 ]
 
 [project.optional-dependencies]

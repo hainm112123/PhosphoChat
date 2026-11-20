@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Literal
@@ -22,7 +23,6 @@ from app.vault.store import DuplicateSource, StagedSource, VaultError, extract_t
 # Everything here changes a vault or reports on management jobs: admins only.
 router = APIRouter(prefix="/api", dependencies=[Depends(require_admin)])
 
-MAX_UPLOAD = 20_000_000
 
 
 class JobOptions(BaseModel):
@@ -95,10 +95,11 @@ async def capture(vault: str, url: str | None = Form(None), text: str | None = F
                               source_url="pasted", content_type="note")
     else:
         data = await file.read()
-        if len(data) > MAX_UPLOAD:
-            raise HTTPException(413, "File is larger than 20 MB.")
+        if len(data) > get_settings().max_upload_mb * 1_000_000:
+            raise HTTPException(413, f"File is larger than {get_settings().max_upload_mb} MB (MAX_UPLOAD_MB).")
         filename = Path(file.filename or "upload.txt").name
-        body, ctype = _or_http(lambda: extract_text(filename, data))
+        # Off the event loop: a large PDF takes up to a minute, which would stall every other request.
+        body, ctype = await asyncio.to_thread(_or_http, lambda: extract_text(filename, data))
         staged = StagedSource(title=title or Path(filename).stem, body=body,
                               source_url=f"upload:{filename}", content_type=ctype,
                               original=(filename, data))

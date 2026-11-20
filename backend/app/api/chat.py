@@ -20,7 +20,7 @@ from sse_starlette import EventSourceResponse
 
 from app.agents import summary
 from app.agents.chat import chat_agent, chat_agent_without_tools
-from app.agents.runtime import explain_error, is_bad_tool_call, is_too_large, stream_run
+from app.agents.runtime import explain_error, is_bad_tool_call, is_too_large, is_transient, stream_run
 from app.api.deps import get_vault
 from app.auth.deps import current_user
 from app.auth.store import User
@@ -37,6 +37,7 @@ conversations = APIRouter(prefix="/api/vaults/{vault}/conversations")
 # Groq's free tier counts tokens per minute; after a request is refused as too large, this is
 # roughly how long until enough of the minute's budget is free again for a small request.
 BUDGET_WAIT_SECONDS = 30
+BUSY_WAIT_SECONDS = 10
 
 
 class ChatIn(BaseModel):
@@ -138,9 +139,10 @@ async def chat(vault: str, body: ChatIn, user: User = Depends(current_user)):
         # there is retrieved context to answer from (a small request), otherwise with the tools
         # again. A fallback that is itself refused as too large usually means the first attempt
         # used up this minute's token budget, so wait for it and try once more.
+        # A provider that is briefly busy (503, per-minute 429) gets one retry of the same stage.
         fallback = chat_agent_without_tools() if context_text else chat_agent()
-        agents = [chat_agent(), fallback, fallback]
-        for attempt, agent in enumerate(agents):
+        stages, busy_retries = [(0, chat_agent()), (1, fallback), (2, fallback)], 1
+        for i, (attempt, agent) in enumerate(stages):
             try:
                 async for ev in stream_run(agent, body.message, deps=Deps(vault=v), history=history,
                                            request_limit=get_settings().chat_request_limit,
@@ -152,6 +154,14 @@ async def chat(vault: str, body: ChatIn, user: User = Depends(current_user)):
                         yield event(ev["type"], ev)
                 break
             except Exception as e:  # noqa: BLE001 - shown in the chat
+                if busy_retries and is_transient(e):
+                    busy_retries -= 1
+                    what = f"HTTP {e.status_code}" if hasattr(e, "status_code") else "no response in time"
+                    yield event("reset", {"message": f"The model provider is busy ({what}); "
+                                                     f"trying again in {BUSY_WAIT_SECONDS} s."})
+                    await asyncio.sleep(BUSY_WAIT_SECONDS)
+                    stages.insert(i + 1, (attempt, agent))
+                    continue
                 too_large = is_too_large(e) and bool(context_text)
                 if attempt == 0 and (is_bad_tool_call(e) or too_large):
                     why = ("the request grew past the model's token limit" if too_large

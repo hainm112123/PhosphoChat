@@ -159,8 +159,9 @@ Under each answer, a "Consulted" line and a network show what was used. Turn the
 
 **Claims from your sources.** A kinase/phosphatase → substrate statement in a captured paper is
 recorded as a claim:
-- **Recording:** capture and sync call `record_relation`; the code checks that both proteins
-  exist in the graph and that the quote appears **verbatim** in the source.
+- **Recording:** while code reads a captured source, the reader model lists each relation with
+  its quote; the code checks that both proteins exist in the graph and that the quote appears
+  **verbatim** in the source. The writing model never records claims itself.
 - **Storage:** claims live in the vault (`relations.jsonl`, git-versioned and rolled back with a
   failed capture). They are compared with the databases each time they're read:
 
@@ -381,15 +382,17 @@ tools, so there is no MCP server, no subprocess and no shell between the model a
 |---|---|
 | [`api/`](backend/app/api/) | HTTP surface. `vaults.py` (list/create vaults, config, health), `wiki.py` (read pages, sources, index, log, git history), `jobs.py` (capture, sync/lint/digest, job status and SSE progress), `chat.py` (streaming chat over SSE). |
 | [`jobs/runner.py`](backend/app/jobs/runner.py) | Runs each job as an asyncio task and keeps its event log so the UI can follow or replay progress. Jobs on the same vault wait for each other through the vault's lock. |
-| [`agents/chat.py`](backend/app/agents/chat.py) | Chat agent: read-only vault tools, graph tools and `load_skill`. Saved conversations are in [`chat_store.py`](backend/app/chat_store.py) and the running summary in [`agents/summary.py`](backend/app/agents/summary.py). |
+| [`agents/chat.py`](backend/app/agents/chat.py) | Chat agent: a short prompt of its own, `read_page`, `search_pages`, `vault_claims` and the four graph tools. Saved conversations are in [`chat_store.py`](backend/app/chat_store.py) and the running summary in [`agents/summary.py`](backend/app/agents/summary.py). |
 | [`agents/jobs.py`](backend/app/agents/jobs.py) | Job pipeline for capture, sync, lint and digest: deterministic pre-step, agent run with the skill as instructions, fact-check and one revision (capture/sync), deterministic post-step. |
 | [`knowledge/topic.py`](backend/app/knowledge/topic.py) | Topic gate for chat questions and sources: a code check first, then the guard model when it can't tell. |
 | [`agents/verify.py`](backend/app/agents/verify.py) | Fact-checker: gets the source text and the new pages in its prompt and returns the claims the source doesn't support. It has no tools. |
 | [`agents/runtime.py`](backend/app/agents/runtime.py) | Runs an agent and turns pydantic-ai stream events into small UI events (`text`, `tool_call`, `tool_result`, `usage`); turns provider errors into readable messages. |
-| [`prompts/`](backend/app/prompts/) | `AGENTS.md` (the LLM-Wiki schema and grounding rules) and `skills/{capture,sync,lint,digest,query}/SKILL.md`. One copy for every vault; read on each run. |
-| [`tools/agent_tools.py`](backend/app/tools/agent_tools.py) | The only tools agents get. Read: `read_index`, `list_pages`, `read_page`, `search_pages`, `list_sources`, `read_source`, `read_log`. Write (jobs only): `write_page`, `upsert_index`. Chat only: `load_skill`. Plus the 8 graph tools. Every result is capped at `TOOL_OUTPUT_CHARS`. |
+| [`prompts/`](backend/app/prompts/) | `AGENTS.md` (the wiki rules for jobs: grounding, page format, safety) and `skills/{capture,lint,digest}/SKILL.md` (sync uses the capture skill). One copy for every vault; read on each run. |
+| [`agents/reader.py`](backend/app/agents/reader.py) | Code reads every captured source: it splits it at its section headings, skips references, methods, acknowledgements and similar (`CAPTURE_SKIP_SECTIONS`), and a tool-less reader extracts findings and relations from each part. Only verbatim quotes are kept, each labelled with its section and page. |
+| [`tools/agent_tools.py`](backend/app/tools/agent_tools.py) | The only tools agents get, and each agent gets only its own: capture, sync and digest get `read_index`, `list_pages`, `read_page`, `write_page`, `upsert_index`; lint adds `search_pages` and `list_sources`. Every result is capped at `TOOL_OUTPUT_CHARS`. |
+| [`graph/agent_tools.py`](backend/app/graph/agent_tools.py) | The chat model's graph tools, with only the arguments it needs: `search_entities(name)`, `interactions(protein, direction, site)`, `find_paths(source, target)`, `get_interaction(enzyme, target)`. |
 | [`tools/web.py`](backend/app/tools/web.py) | Fetches a URL for capture (http/https only, private addresses refused, 5 MB cap) and extracts readable Markdown with trafilatura. Called by the API, not by agents. |
-| [`graph/signor.py`](backend/app/graph/signor.py), [`graph/network.py`](backend/app/graph/network.py) | Agent tools over the merged graph: `search_entities`, `get_entity`, `regulators_of`, `targets_of`, `sites_of`, `find_paths`, `get_interaction`, `get_evidence`, `graph_overview` (filters: databases, min databases, SIGNOR score). `network.py` builds the networks for the explorer and the chat graphs. Read-only sessions. |
+| [`graph/signor.py`](backend/app/graph/signor.py), [`graph/network.py`](backend/app/graph/network.py) | Queries over the merged graph, with every filter (databases, min databases, SIGNOR score), used by the explorer, the retrieved context and the chat tools. `network.py` builds the networks for the explorer and the chat graphs. Read-only sessions. |
 | [`api/graph.py`](backend/app/api/graph.py), [`pages/GraphPage.tsx`](frontend/src/pages/GraphPage.tsx) | Graph explorer: search, neighbourhood network, interaction detail, legend. Cytoscape.js, loaded only when a network is shown. |
 | [`vault/store.py`](backend/app/vault/store.py) | `Vault`: safe paths, create-only sources, page validation (frontmatter, known sources, citations), index and log editing, mechanical lint, git commit and rollback. `VaultRegistry` creates vaults from `vault/template/`. |
 | [`llm.py`](backend/app/llm.py), [`config.py`](backend/app/config.py) | Model selection from `MODEL` (Groq gets a client that waits out rate limits); settings from `.env`, re-read whenever the file changes. |
@@ -424,8 +427,8 @@ sequenceDiagram
     UI->>API: POST /api/vaults/{v}/chat {message, session_id}
     API->>A: run with the saved history (last turns + summary)
     loop until the model answers
-        A->>M: instructions (AGENTS.md + chat rules) + history
-        M-->>A: tool call, e.g. regulators_of("ARX")
+        A->>M: instructions (chat rules) + history
+        M-->>A: tool call, e.g. interactions("ARX")
         A->>T: run tool (result capped)
         T-->>A: JSON result or {"error": ...}
         API-->>UI: SSE tool_call / tool_result
@@ -475,7 +478,8 @@ sequenceDiagram
     API-->>UI: 202 {job} (source staged in memory, nothing written)
     Note over API,V: job starts, takes the vault lock, records base commit
     J->>V: save_source (create-only)
-    J->>V: read_source, read_index, read_page ...
+    J->>J: code reads the source in parts, the reader extracts findings + relations (claims)
+    J->>V: read_index, read_page ...
     J->>V: write_page (rejected if frontmatter, sources or citations are wrong)
     J->>V: upsert_index
     J->>F: pages + source text
@@ -495,6 +499,23 @@ removed. That covers a provider error, the writer finishing without writing a pa
 fact-check itself failing. The staged source stays in memory, so **Retry**
 (`POST /api/jobs/{id}/retry`) can run the capture again until the server restarts.
 
+**Code reads the source; the model writes.** Every capture and sync source is read by code:
+- **PDFs** become Markdown with PyMuPDF: `## ` headings (larger or bold type), a
+  `<!-- page N -->` marker per page, hyphenated line breaks joined, and running headers and
+  footers removed.
+- **Parts.** The text is cut at its section headings into parts of about `CAPTURE_PART_CHARS`.
+  Sections matching `CAPTURE_SKIP_SECTIONS` (references, methods, acknowledgements, funding,
+  declarations, supplementary material) are skipped, with their sub-headings.
+- **Reading.** For each part, a reader with no tools returns findings and kinase/phosphatase →
+  substrate relations, each with a quote. Quotes that aren't verbatim are dropped; the relations
+  become claims.
+- **Writing.** The writer gets the notes (findings labelled with section and page, or the whole
+  text of a short source) and the relations with their status, and writes the pages.
+
+This keeps every request small. Each agent's fixed prompt (instructions plus tool definitions) is
+a few thousand characters, measured by `python -m eval.overhead` and held in place by
+`tests/test_prompt_budget.py`, so a capture fits Groq's free tier (8,000 tokens per request).
+
 Sync works the same way over every source not yet named in `log.md` (up to 10 per run).
 For lint, code first runs the mechanical checks (broken links, orphans, index drift, schema,
 uncited blocks) and fixes the index. The agent then does the checks that need reading and writes
@@ -508,7 +529,8 @@ break the bookkeeping, because the code handles it:
 
 | Done in code | Done by the agent (tools) |
 |---|---|
-| Save sources unchanged with frontmatter (create-only, dedup by URL and content hash) | Read sources, the index, pages and the graph |
+| Save sources unchanged with frontmatter (create-only, dedup by URL and content hash) | Read the index and pages |
+| Read every source in parts; keep verbatim quotes; record claims (the reader model extracts) | |
 | Find unprocessed sources (sync); add frontmatter to files dropped into `sources/` | Write whole wiki pages (`write_page` rejects missing frontmatter, unknown sources and uncited paragraphs) |
 | Mechanical lint (broken links, orphans, index drift, schema, uncited blocks) and its index auto-fixes | Semantic lint (stale pages, contradictions, duplicates), `lint-report` |
 | Prepend the `log.md` entry under `# Log`, index any page left unindexed, check links | `upsert_index` with descriptions; the recap for digest |
@@ -544,6 +566,8 @@ changes and wins over the process environment for the keys it defines.
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | –, – | Bootstrap admin, created at startup when no active admin exists |
 | `DATA_DIR`, `SESSION_DAYS`, `COOKIE_SECURE` | `data`, `14`, `false` | Database location (users, logins, chat history); session length; https-only cookie |
 | `TOOL_OUTPUT_CHARS` | `8000` | Cap on any single tool result sent to the model |
+| `CAPTURE_PART_CHARS`, `CAPTURE_NOTES_CHARS` | `9000`, `7000` | Size of one part the reader reads; reading notes handed to the writer per job |
+| `CAPTURE_SKIP_SECTIONS` | references, methods, … | Regex of section headings the reader skips |
 | `VERIFY_CAPTURES`, `VERIFY_SOURCE_CHARS` | `false`, `12000` | Fact-check after capture/sync; source text given to the checker |
 | `CHAT_REQUEST_LIMIT`, `JOB_REQUEST_LIMIT` | `15`, `40` | Max model calls per chat answer / per job |
 | `CHAT_KEEP_TURNS`, `CHAT_SUMMARIZE`, `CHAT_SUMMARY_CHARS` | `6`, `true`, `1500` | Recent turns the model sees as they were; fold older ones into a summary; its size cap |
@@ -576,5 +600,7 @@ cd backend && .venv/Scripts/python -m pytest -q
 - Login sessions and users are in SQLite on one server. Serve over https (`COOKIE_SECURE=true`)
   before exposing it beyond localhost.
 - Jobs live in memory and are lost on restart; the vault is on disk and in git, and chat history is in SQLite.
+- PDF text comes from PyMuPDF, which is AGPL-3.0 licensed: distributing PhosphoChat with it means
+  offering its source under the AGPL. Scanned PDFs (no text layer) are refused; there is no OCR.
 - `search_pages` is a plain substring search. Add SQLite FTS or embeddings once the wiki grows.
 - Not built yet: KEGG pathway and InterPro domain views, scheduled digest, and an MCP facade over `app/graph/signor.py`.

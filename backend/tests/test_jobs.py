@@ -67,7 +67,7 @@ async def _collect(vault, kind, params, staged=None):
 async def test_capture_job_end_to_end(vault):
     staged, src = _stage()
     model = scripted([
-        [("read_source", {"name": src})],
+        [("read_index", {})],
         [("write_page", {"name": "marcks", "content": _page(src)})],
         _final(report="Created [[marcks]].", key_takeaway="x"),
     ])
@@ -85,7 +85,7 @@ async def test_capture_job_end_to_end(vault):
     # one commit holds the source and the pages
     assert [h["message"] for h in vault.history()] == [f"capture: {src}", "init vault"]
     assert vault._git("status", "--porcelain").stdout == ""
-    assert [e["name"] for e in events if e["type"] == "tool_call"] == ["read_source", "write_page"]
+    assert [e["name"] for e in events if e["type"] == "tool_call"] == ["read_index", "write_page"]
     assert vault.unprocessed_sources() == []
 
 
@@ -274,3 +274,10 @@ async def test_verify_false_skips_fact_check(vault, monkeypatch):
     with job_agent().override(model=writer):  # no verifier override: it must not be called
         result, _ = await _collect(vault, "capture", {"verify": False}, staged)
     assert result["fact_check"] is None
+
+
+def test_links_to_pages_not_written_become_plain_text():
+    from app.agents.jobs import _unlink
+    page = "See [[marcks]], [[pkc|protein kinase C]] and [[atm#Sites]]. Keep [[source: a.md]] and [[tdp1]]."
+    assert _unlink(page, {"marcks", "pkc", "atm"}) == (
+        "See marcks, protein kinase C and atm. Keep [[source: a.md]] and [[tdp1]].")

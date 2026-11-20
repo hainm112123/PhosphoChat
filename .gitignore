@@ -15,3 +15,5 @@ HANDOFF.md
 .claude
 .vscode
 seed/kinase_groups.SOURCE.md
+# evaluation run outputs (large; the report holds the numbers)
+backend/eval/results/

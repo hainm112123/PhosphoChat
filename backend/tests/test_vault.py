@@ -45,7 +45,9 @@ def test_migrate_removes_legacy_agent_files(tmp_path):
 
 def test_prompts_are_app_wide():
     from app import prompts
-    assert set(prompts.skill_names()) == {"capture", "digest", "lint", "query", "sync"}
+    assert set(prompts.skill_names()) == {"capture", "digest", "lint"}
+    assert prompts.skill("sync") == prompts.skill("capture")      # sync writes like capture
+    assert not prompts.skill("lint").startswith("---")            # frontmatter is not sent
     assert "Grounding" in prompts.schema()
     with pytest.raises(KeyError):
         prompts.skill("../AGENTS")
@@ -201,3 +203,52 @@ def test_search_and_backlinks(vault):
     hits = vault.search("phosphorylates")
     assert {h["name"] for h in hits} == {"protein-kinase-c", "marcks"}
     assert vault.backlinks("marcks") == ["protein-kinase-c"]
+
+
+def test_an_interrupted_job_is_rolled_back(vault):
+    """A job killed mid-way (crash, restart) leaves its marker; the next start undoes its files."""
+    base = vault.head()
+    vault.begin_job(base)
+    vault.save_source(title="Half captured", body="ATM phosphorylates TDP1.", source_url="pasted", content_type="note")
+    assert vault.list_sources()
+    # ... the process dies here: no rollback, no end_job ...
+    assert vault.recover_interrupted_job() is True
+    assert vault.list_sources() == [] and vault.head() == base
+    assert vault.recover_interrupted_job() is False  # nothing left to do
+
+
+def test_a_live_jobs_marker_is_left_alone(vault):
+    """Another app instance on the same vaults folder is mid-job: its marker names a running
+    process, so starting up here must not roll its work back."""
+    import os
+    import subprocess
+    import sys
+    base = vault.head()
+    vault.save_source(title="Live job", body="ATM phosphorylates TDP1.", source_url="pasted", content_type="note")
+    marker = vault.root / ".git" / "phosphochat-job"
+    marker.write_text(f"{base} {os.getppid()}", encoding="utf-8")          # a process that is running
+    assert vault.recover_interrupted_job() is False and vault.list_sources()
+    done = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True)
+    marker.write_text(f"{base} {done.stdout.strip()}", encoding="utf-8")  # a process that has exited
+    assert vault.recover_interrupted_job() is True and vault.list_sources() == []
+
+
+def test_a_citation_in_the_frontmatter_summary_is_repaired(vault):
+    src = vault.save_source(title="Note", body="ATM phosphorylates TDP1.", source_url="pasted", content_type="note")
+    page = (f"---\ntitle: ATM\nsummary: ATM phosphorylates TDP1 [[source: {src}]]\nsources:\n  - {src}\n---\n"
+            f"# ATM\n\n**Summary:** ATM phosphorylates TDP1 [[source: {src}]].\n")
+    assert vault.write_page("atm", page) == "created"
+    assert vault.page_meta("atm")["summary"] == "ATM phosphorylates TDP1"
+    assert "summary: ATM phosphorylates TDP1\n" in vault.read_page("atm")
+
+
+def test_parallel_index_updates_are_not_lost(vault):
+    from concurrent.futures import ThreadPoolExecutor
+    src = vault.save_source(title="Note", body="ATM phosphorylates TDP1.", source_url="pasted", content_type="note")
+    names = [f"page-{i}" for i in range(12)]
+    for n in names:
+        vault.write_page(n, f"---\ntitle: {n}\nsummary: s\nsources:\n  - {src}\n---\n# {n}\n\nText [[source: {src}]].\n")
+    with ThreadPoolExecutor(8) as pool:   # what parallel tool calls in one model turn do
+        list(pool.map(lambda n: vault.upsert_index(n, f"about {n}"), names))
+    assert set(names) <= set(vault.index_entries())
+    assert not list(vault.root.glob(".*.tmp"))

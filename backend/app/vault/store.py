@@ -8,14 +8,18 @@ is prepended under its heading, and each job ends in one git commit.
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
+import functools
 import hashlib
 import json
 import io
 import os
+import time
 import re
 import shutil
 import stat
 import subprocess
+import threading
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -56,6 +60,22 @@ def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+_FM_LINE = re.compile(r"^([A-Za-z_][\w-]*):[ \t]+(.+?)\s*$")
+
+
+def _quote_frontmatter_values(block: str) -> str:
+    """Quote `key: value` lines whose value YAML would misread; drop citations there (the
+    frontmatter needs none: 'summary: X [[source: a.md]]')."""
+    out = []
+    for line in block.splitlines():
+        m = _FM_LINE.match(line)
+        if m and not m.group(2).startswith(("'", '"', "[", "{", "|", ">")):
+            value = re.sub(r"\s*\[\[source:[^\]]*\]\]", "", m.group(2)).strip()
+            line = f"{m.group(1)}: {json.dumps(value, ensure_ascii=False)}"
+        out.append(line)
+    return "\n".join(out)
+
+
 def split_frontmatter(text: str) -> tuple[dict, str]:
     m = FRONTMATTER_RE.match(text)
     if not m:
@@ -63,7 +83,10 @@ def split_frontmatter(text: str) -> tuple[dict, str]:
     try:
         meta = yaml.safe_load(m.group(1)) or {}
     except yaml.YAMLError as e:
-        raise VaultError(f"Frontmatter is not valid YAML: {e}") from e
+        try:  # the usual slip: an unquoted value with ": " in it, e.g. a citation after the summary
+            meta = yaml.safe_load(_quote_frontmatter_values(m.group(1))) or {}
+        except yaml.YAMLError:
+            raise VaultError(f"Frontmatter is not valid YAML: {e}") from e
     if not isinstance(meta, dict):
         raise VaultError("Frontmatter must be a YAML mapping (key: value lines).")
     return meta, text[m.end():]
@@ -176,10 +199,39 @@ def uncited_blocks(body: str, allow_page_links: bool = False) -> list[str]:
     return missing
 
 
+_FILE_LOCKS: dict[str, threading.RLock] = {}
+_FILE_LOCKS_GUARD = threading.Lock()
+
+
+def _vault_lock(root: Path) -> threading.RLock:
+    """One lock per vault folder, shared by every Vault object on it. A model can call several
+    tools in one turn and pydantic-ai runs them at the same time (sync tools in threads), so
+    read-modify-write of index.md, log.md and relations.jsonl must not interleave."""
+    key = str(root.resolve()).lower()
+    with _FILE_LOCKS_GUARD:
+        return _FILE_LOCKS.setdefault(key, threading.RLock())
+
+
+def serialized(method):
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with _vault_lock(self.root):
+            return method(self, *args, **kwargs)
+    return wrapper
+
+
 def _atomic_write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
+    tmp = path.with_name(f".{path.name}.{os.getpid()}-{threading.get_ident()}.tmp")  # unique per writer
     tmp.write_text(text, encoding="utf-8", newline="\n")
+    # Windows: replacing fails while another program (an editor, Obsidian, antivirus, the git
+    # index refresh) has the file open; that lasts a moment, so wait and try again.
+    for wait in (0.05, 0.1, 0.25, 0.5, 1.0, 2.0):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            time.sleep(wait)
     os.replace(tmp, path)
 
 
@@ -199,11 +251,105 @@ def extract_text(filename: str, data: bytes) -> tuple[str, ContentType]:
                 + "".join(f"- `{c}`\n" for c in header)
                 + f"\n## First rows\n```\n{preview}\n```\n"), "data"
     if ext == ".pdf":
-        from pypdf import PdfReader
-        reader = PdfReader(io.BytesIO(data))
-        pages = [(p.extract_text() or "").strip() for p in reader.pages]
-        return "\n\n".join(f"<!-- page {i + 1} -->\n{t}" for i, t in enumerate(pages) if t), "paper"
+        return _pdf_text(data), "paper"
     raise VaultError(f"Unsupported file type '{ext}'. Use .md, .txt, .csv, .tsv or .pdf.")
+
+
+_BOLD_FONT = re.compile(r"bold|black|heavy|semibold|\.B$|-B$|,B$", re.I)
+_SECTION_NAMES = re.compile(
+    r"^(\d+(\.\d+)*\.?\s+)?(abstract|summary|introduction|background|results?|discussion|conclusions?|"
+    r"methods?|materials and methods|star methods|experimental procedures|references|acknowledg\w*|"
+    r"author contributions|declaration of interests|competing interests|data availability|"
+    r"supplemental information|supplementary information|limitations.*|significance|highlights|in brief)\b", re.I)
+
+
+def _pdf_blocks(page) -> list[list[tuple[str, float, bool]]]:
+    """Each text block of a page as its lines: (text, largest font size, all bold), in content
+    order, with hyphenated line breaks joined."""
+    import pymupdf
+    out = []
+    d = page.get_text("dict", flags=pymupdf.TEXTFLAGS_TEXT | pymupdf.TEXT_DEHYPHENATE)
+    for b in d.get("blocks", []):
+        lines = []
+        for line in b.get("lines", []):
+            spans = [s for s in line.get("spans", []) if s.get("text", "").strip()]
+            if spans:
+                text = re.sub(r"\s+", " ", "".join(s["text"] for s in line["spans"])).strip()
+                bold = all(s["flags"] & 16 or _BOLD_FONT.search(s.get("font", "")) for s in spans)
+                lines.append((text, max(s["size"] for s in spans), bold))
+        if lines:
+            out.append(lines)
+    return out
+
+
+def _is_heading(text: str, size: float, bold: bool, body: float) -> bool:
+    words = text.split()
+    return (1 <= len(words) <= 14 and sum(c.isalpha() for c in text) >= 4
+            and not text.endswith((".", ",", ";", ":")) and (size >= body * 1.15 or bold))
+
+
+def _join_lines(lines: list[str]) -> str:
+    """Lines of one paragraph as one string; "phosphoryl-" + "ation" becomes "phosphorylation"."""
+    out = ""
+    for t in lines:
+        if out.endswith("-") and len(out) > 1 and out[-2].isalpha() and t[:1].islower():
+            out = out[:-1] + t
+        else:
+            out = f"{out} {t}" if out else t
+    return out
+
+
+def _pdf_text(data: bytes) -> str:
+    """A paper as Markdown: one `<!-- page N -->` marker per page, `## ` before section headings
+    (a short block in a larger or bold font), and running headers/footers removed. A page that
+    can't be read is skipped and noted instead of failing the whole paper."""
+    import pymupdf
+    try:
+        doc = pymupdf.open(stream=data, filetype="pdf")
+    except Exception as e:  # noqa: BLE001
+        raise VaultError(f"This PDF can't be opened: {e}") from e
+    pages, skipped = [], []
+    for i, page in enumerate(doc, start=1):
+        try:
+            pages.append((i, _pdf_blocks(page)))
+        except Exception:  # noqa: BLE001 - a malformed page
+            skipped.append(i)
+    sizes: Counter = Counter()
+    for _, blocks in pages:
+        for lines in blocks:
+            for text, size, _ in lines:
+                sizes[round(size, 1)] += len(text)
+    body = sizes.most_common(1)[0][0] if sizes else 10.0
+    # Lines repeated on many pages: journal name, "Downloaded from ...", page footers.
+    key = lambda t: re.sub(r"\d+", "#", t)  # noqa: E731
+    repeated = Counter(key(t) for _, blocks in pages for lines in blocks for t, _, _ in lines if len(t) < 160)
+    furniture = {t for t, n in repeated.items() if n >= max(3, len(pages) // 3)}
+    parts = []
+    for i, blocks in pages:
+        candidates = sum(_is_heading(t, s, b, body) for lines in blocks for t, s, b in lines)
+        figure_page = candidates > 8  # panel letters and axis labels: keep only real section names
+        out = []
+        for lines in blocks:
+            lines = [ln for ln in lines if key(ln[0]) not in furniture]
+            flags = [(t[:1].isupper() and _SECTION_NAMES.fullmatch(t.strip()) is not None) or (
+                _is_heading(t, s, b, body) and (not figure_page or bool(_SECTION_NAMES.match(t))))
+                for t, s, b in lines]
+            j = 0
+            while j < len(lines):
+                k = j
+                while k < len(lines) and flags[k] == flags[j]:
+                    k += 1
+                text = _join_lines([t for t, _, _ in lines[j:k]])
+                # A heading is 1-3 lines; a longer run of large/bold lines is a bold paragraph.
+                out.append(f"## {text}" if flags[j] and k - j <= 3 else text)
+                j = k
+        if out:
+            parts.append(f"<!-- page {i} -->\n" + "\n\n".join(out))
+    if not parts:
+        raise VaultError("No text could be extracted from this PDF (scanned, or unreadable).")
+    if skipped:
+        parts.append(f"<!-- pages {', '.join(map(str, skipped))} could not be read -->")
+    return "\n\n".join(parts)
 
 
 @dataclass
@@ -306,6 +452,7 @@ class Vault:
                         "sources": m.get("sources") or []})
         return out
 
+    @serialized
     def write_page(self, name: str, content: str) -> Literal["created", "updated"]:
         """Write a whole wiki page. Validates frontmatter and sets last_updated."""
         name = self.page_name(name)
@@ -519,6 +666,7 @@ class Vault:
                 out[m.group(1).strip().removesuffix(".md")] = m.group(2).strip()
         return out
 
+    @serialized
     def upsert_index(self, name: str, description: str,
                      section: Literal["Pages", "Recaps"] = "Pages") -> Literal["added", "updated"]:
         name = self.page_name(name)
@@ -548,6 +696,7 @@ class Vault:
         _atomic_write(self.root / "index.md", "\n".join(lines).rstrip() + "\n")
         return "added"
 
+    @serialized
     def remove_index_entry(self, name: str) -> bool:
         lines = self.read_index().splitlines()
         kept = [ln for ln in lines if not re.match(rf"^\s*-\s*\[\[{re.escape(name)}(\]\]|[|#])", ln)]
@@ -571,6 +720,7 @@ class Vault:
                 out.append(LogEntry(m.group(1), m.group(2), m.group(3).strip()))
         return out
 
+    @serialized
     def prepend_log(self, kind: str, lines: list[str]) -> str:
         """Insert a new entry directly below the '# Log' heading (newest first)."""
         entry = f"## {now_iso()} · {kind}\n" + "".join(
@@ -604,6 +754,7 @@ class Vault:
                     continue  # a hand-edited broken line shouldn't hide the rest
         return out
 
+    @serialized
     def add_relation(self, claim: dict) -> bool:
         """Append a claim; returns False when a claim with the same id already exists."""
         if any(c.get("id") == claim["id"] for c in self.read_relations()):
@@ -612,6 +763,7 @@ class Vault:
             fh.write(json.dumps(claim, ensure_ascii=False, separators=(",", ":")) + "\n")
         return True
 
+    @serialized
     def update_relation(self, claim_id: str, **changes) -> dict:
         claims = self.read_relations()
         hit = next((c for c in claims if c.get("id") == claim_id), None)
@@ -711,6 +863,34 @@ class Vault:
         for p in created_files or []:
             p.unlink(missing_ok=True)
 
+    # A write job leaves a marker (inside .git, so it is never committed) with its base commit
+    # and the process running it, removed when the job ends either way. If that process dies
+    # mid-job, the marker survives, and the vault is put back to that commit before anything
+    # else touches it. A marker whose process is still running belongs to a live job (another
+    # app instance on the same vaults folder) and is left alone.
+
+    @property
+    def _job_marker(self) -> Path:
+        return self.root / ".git" / "phosphochat-job"
+
+    def begin_job(self, base: str | None) -> None:
+        if base and self._job_marker.parent.is_dir():
+            self._job_marker.write_text(f"{base} {os.getpid()}", encoding="utf-8")
+
+    def end_job(self) -> None:
+        self._job_marker.unlink(missing_ok=True)
+
+    def recover_interrupted_job(self) -> bool:
+        """Undo the leftovers of a job whose process died mid-way (crash, restart). True if any."""
+        if not self._job_marker.is_file():
+            return False
+        base, _, pid = self._job_marker.read_text(encoding="utf-8").strip().partition(" ")
+        if pid.isdigit() and int(pid) != os.getpid() and _process_alive(int(pid)):
+            return False
+        self.rollback_to(base or None)
+        self.end_job()
+        return True
+
     def history(self, limit: int = 20) -> list[dict]:
         r = self._git("log", f"-{limit}", "--pretty=format:%h%x09%aI%x09%s")
         out = []
@@ -718,6 +898,28 @@ class Vault:
             sha, when, msg = (line.split("\t", 2) + ["", ""])[:3]
             out.append({"sha": sha, "date": when, "message": msg})
         return out
+
+
+def _process_alive(pid: int) -> bool:
+    """Whether a process with this id is running (without signalling it)."""
+    if os.name == "nt":
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 # --------------------------------------------------------------------------- registry

@@ -1,14 +1,18 @@
 """Skill-driven write jobs: capture, sync, lint, digest.
 
-Each job is: deterministic pre-step (in code) -> agent run with the app's AGENTS.md + SKILL.md
-as instructions and the write tools -> (capture/sync) fact-check against the sources plus one
-revision turn -> deterministic post-step (index safety net, log entry, git commit). The model only does the editorial work; bookkeeping it could get wrong
-(source files, log placement, unprocessed-source detection, mechanical lint) is code.
+Each job is: deterministic pre-step (in code) -> (capture/sync) code reads the sources in parts
+and records their claims -> agent run with AGENTS.md + the kind's SKILL.md as instructions and
+only the kind's tools -> (capture/sync) optional fact-check plus one revision turn ->
+deterministic post-step (index safety net, log entry, git commit). The model only does the
+editorial work; bookkeeping it could get wrong (reading, claims, source files, log placement,
+unprocessed-source detection, mechanical lint) is code.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -18,14 +22,16 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.capabilities import ProcessHistory
 
 from app import prompts
-from app.agents.runtime import JobFailed, explain_error, is_bad_tool_call, stream_run
+from app.agents.reader import compact_history, read_in_parts
+from app.agents.runtime import JobFailed, explain_error, is_bad_tool_call, is_too_large, is_transient, stream_run
 from app.agents.verify import Issue, verify_pages
 from app.config import get_settings
 from app.knowledge import topic
 from app.llm import model_name
-from app.tools.agent_tools import Deps, graph_toolset, vault_read_toolset, vault_write_toolset
+from app.tools.agent_tools import Deps, job_tool_names, job_toolsets
 from app.vault.store import StagedSource, Vault, page_links, split_frontmatter
 
 JobKind = Literal["capture", "sync", "lint", "digest"]
@@ -49,8 +55,7 @@ in your report. Work only through your tools. When the work is done, return the 
 
 
 def _instructions(ctx: RunContext[JobContext]) -> str:
-    return (f"{prompts.schema()}\n\n{JOB_RULES}\n\n"
-            f"# Skill: {ctx.deps.kind}\n\n{prompts.skill(ctx.deps.kind)}")
+    return f"{prompts.schema()}\n{JOB_RULES}\n{prompts.skill(ctx.deps.kind)}"
 
 
 @dataclass
@@ -60,12 +65,14 @@ class JobContext(Deps):
 
 @lru_cache
 def job_agent() -> Agent[JobContext, JobReport]:
+    """One agent for every job kind; each run gets its kind's skill and only its kind's tools."""
     return Agent(
         deps_type=JobContext,
         output_type=JobReport,
         name="phosphochat-job",
         instructions=_instructions,
-        toolsets=[vault_read_toolset(), vault_write_toolset(), graph_toolset()],
+        toolsets=job_toolsets(),
+        capabilities=[ProcessHistory(compact_history)],
         defer_model_check=True,
     )
 
@@ -75,6 +82,19 @@ def job_agent() -> Agent[JobContext, JobReport]:
 def _iso_week_name(d: date) -> str:
     y, w, _ = d.isocalendar()
     return f"{y}-w{w:02d}-recap"
+
+
+INDEX_IN_PROMPT_CHARS = 3000
+
+
+def _index_section(vault: Vault) -> str:
+    """The index, in the task itself (saves the writer a tool round trip), unless it is large."""
+    index = vault.read_index().strip()
+    if len(index) > INDEX_IN_PROMPT_CHARS:
+        return "\n\nThe index is large: call read_index to see the existing pages."
+    if not vault.index_entries():
+        return "\n\nThe wiki has no pages yet."
+    return f"\n\nCurrent index.md:\n{index}"
 
 
 def prepare(vault: Vault, kind: JobKind, params: dict,
@@ -87,8 +107,8 @@ def prepare(vault: Vault, kind: JobKind, params: dict,
         src = next((s for s in vault.list_sources() if s["name"] == name), {})
         return (f"Task: capture.\nThe new source is saved as `{name}` "
                 f"(title: {src.get('title')!r}, content_type: {src.get('content_type')}).\n"
-                "Follow the capture skill: read it, update or create the affected wiki pages, "
-                "index new pages, then return the report.", {"sources": [name]})
+                "Write the wiki pages for it from the reading notes below, then return the report."
+                + _index_section(vault), {"sources": [name]})
 
     if kind == "sync":
         prepared = vault.prepare_dropped_sources()
@@ -102,8 +122,8 @@ def prepare(vault: Vault, kind: JobKind, params: dict,
         more = f"\n({len(todo) - len(batch)} more remain for the next sync.)" if len(todo) > 10 else ""
         return ("Task: sync.\nUnprocessed sources (frontmatter already prepared):\n"
                 + "".join(f"- {s}\n" for s in batch) + more
-                + "\nFollow the sync skill, then return the report.",
-                {"sources": batch, "prepared": prepared, "skipped": skip})
+                + "\nWrite the wiki pages for them from the reading notes below, then return the report."
+                + _index_section(vault), {"sources": batch, "prepared": prepared, "skipped": skip})
 
     if kind == "lint":
         findings = vault.lint_mechanical()
@@ -169,7 +189,13 @@ def finish(vault: Vault, kind: JobKind, deps: JobContext, ctx: dict, report: Job
         page = vault.read_page(n)
         links, _ = page_links(page)
         bad = sorted(l for l in links if l not in names)
-        if bad:
+        if bad and kind in ("capture", "sync"):
+            # Links to pages nobody wrote become plain text, so the model needn't rewrite a page
+            # just to remove them (on small budgets those rewrites are what a job spends).
+            page = _unlink(page, set(bad))
+            vault.write_page(n, page)
+            warnings.append(f"[[{n}]]: links to pages not written turned into plain text: {', '.join(bad)}")
+        elif bad:
             warnings.append(f"[[{n}]] links to missing pages: {', '.join(bad)}")
         if n != "lint-report" and not topic.has_topic_terms(split_frontmatter(page)[1]):
             warnings.append(f"[[{n}]] names no protein, drug, disease or kinase term; check it belongs here.")
@@ -216,6 +242,17 @@ def finish(vault: Vault, kind: JobKind, deps: JobContext, ctx: dict, report: Job
                        for c in deps.claims]}
 
 
+def _unlink(page: str, names: set[str]) -> str:
+    """`[[name]]` / `[[name|label]]` -> `name` / `label` for the given page names."""
+    def plain(m: re.Match) -> str:
+        target = m.group(1).strip().removesuffix(".md")
+        if target not in names:
+            return m.group(0)
+        label = m.group(2)
+        return (label or target).strip()
+    return re.sub(r"\[\[([^\]|#]+)(?:[#][^\]|]*)?(?:\|([^\]]*))?\]\]", plain, page)
+
+
 def _off_topic_warnings(skipped: dict[str, str] | None) -> list[str]:
     return [f"sources/{name} looks off-topic ({reason or 'outside the scope'}), so it wasn't "
             "processed. To include it anyway, move it out of sources/ and capture it with "
@@ -254,8 +291,10 @@ async def run_job(vault: Vault, kind: JobKind, params: dict, emit: Emit,
     A capture gets its source as `staged` and writes it only here, inside the transaction, so
     a capture that fails leaves no source behind."""
     async with vault.lock:
+        vault.recover_interrupted_job()   # leftovers of a job killed mid-way are not "external"
         vault.commit("external changes")  # so a rollback can only undo this job's own work
         base = vault.head()
+        vault.begin_job(base)
         created_files = []
         deps = JobContext(vault=vault, kind=kind)
         try:
@@ -278,7 +317,10 @@ async def run_job(vault: Vault, kind: JobKind, params: dict, emit: Emit,
                         "commit": vault.commit(f"{kind}: prepare")}
             model = params.get("model")
             await emit({"type": "info", "message": f"Running {kind} with {model_name(model, 'job')}"})
-            report, messages = await _agent_turn(prompt, deps, model, emit)
+            if kind in ("capture", "sync"):
+                report, messages = await _write_from_notes(vault, prompt, ctx["sources"], deps, model, emit)
+            else:
+                report, messages = await _agent_turn(prompt, deps, model, emit)
             if kind in ("capture", "sync") and not deps.touched():
                 raise JobFailed("The model wrote no wiki pages, so nothing was saved."
                                 + (f" Its report:\n\n{report.report}" if report.report else ""))
@@ -293,18 +335,57 @@ async def run_job(vault: Vault, kind: JobKind, params: dict, emit: Emit,
             created_files += [vault.wiki_dir / f"{n}.md" for n in deps.created]
             vault.rollback_to(base, created_files)
             raise
+        finally:
+            vault.end_job()
+
+
+MIN_NOTES_CHARS = 1500
+
+
+async def _write_from_notes(vault: Vault, prompt: str, sources: list[str], deps: JobContext,
+                            model: str | None, emit: Emit) -> tuple[JobReport, list]:
+    """Read the sources in parts (claims recorded by code), then let the agent write the pages
+    from the notes. If the provider refuses the request as too large (small per-request
+    budgets), the notes are halved and the writing step runs again; the reading isn't repeated."""
+    all_notes = [await read_in_parts(vault, s, emit, deps.claims, model) for s in sources]
+    cap = get_settings().capture_notes_chars
+    while True:
+        try:
+            return await _agent_turn(prompt + _notes_section(all_notes, deps.claims, cap), deps, model, emit)
+        except Exception as e:
+            if not is_too_large(e) or cap <= MIN_NOTES_CHARS:
+                raise
+            cap //= 2
+            await emit({"type": "info", "message": "The request was too large for the model; writing "
+                                                   f"again from shorter notes ({cap} characters)."})
+
+
+def _notes_section(all_notes: list, claims: list[dict], cap: int) -> str:
+    per = cap // len(all_notes)
+    blocks = [f"## {n.source}\n{n.render(per)}" for n in all_notes]
+    out = ("\n\n# Reading notes\nEvery quote is copied exactly from the source: rely on it and cite "
+           "the source.\n\n" + "\n\n".join(blocks))
+    if claims:
+        lines = [f"- {c['enzyme']} {'de' if c.get('mechanism') == 'dephosphorylation' else ''}phosphorylates "
+                 f"{c['target']}{' at ' + c['site'] if c.get('site') else ''} ({c.get('source')}): "
+                 f"{c.get('status', 'unknown')}" for c in claims[:20]]
+        out += "\n\n# Relations (recorded; status against the databases)\n" + "\n".join(lines)
+    return out
 
 
 async def _agent_turn(prompt: str, deps: JobContext, model: str | None, emit: Emit,
                       history: list | None = None) -> tuple[JobReport, list]:
     """One agent turn. If the provider rejects a tool the model made up, the turn is run once
-    more with the exact tool names spelled out; work already done (pages written, claims
-    recorded) stays, and the whole job still rolls back if the retry fails too."""
-    for attempt in range(2):
+    more with the exact tool names spelled out. If the provider is briefly unavailable (503,
+    per-minute 429...), the turn is run again after a wait, up to len(TRANSIENT_WAITS) times.
+    Work already done (pages written, claims recorded) stays, and the whole job still rolls
+    back if the retries fail too."""
+    bad_tool, waits = False, list(TRANSIENT_WAITS)
+    while True:
         report, messages = None, []
-        turn_prompt = prompt if attempt == 0 else (
+        turn_prompt = prompt if not bad_tool else (
             prompt + "\n\nNote: a previous attempt called a tool that doesn't exist. Use only these "
-            f"tools, spelled exactly: {', '.join(sorted(_tool_names()))}.")
+            f"tools, spelled exactly: {', '.join(sorted(job_tool_names(deps.kind)))}.")
         try:
             async for ev in stream_run(job_agent(), turn_prompt, deps=deps, history=history,
                                        request_limit=get_settings().job_request_limit, model=model,
@@ -315,19 +396,24 @@ async def _agent_turn(prompt: str, deps: JobContext, model: str | None, emit: Em
                 elif ev["type"] != "graph":  # networks are for chat answers, not job logs
                     await emit(ev)
         except Exception as e:
-            if attempt == 0 and is_bad_tool_call(e):
+            if not bad_tool and is_bad_tool_call(e):
+                bad_tool = True
                 await emit({"type": "info", "message": "The model called a tool that doesn't exist; retrying this step."})
+                continue
+            if waits and is_transient(e):
+                wait = waits.pop(0)
+                what = f"HTTP {e.status_code}" if hasattr(e, "status_code") else "no response in time"
+                await emit({"type": "info", "message": f"The model provider is busy ({what}); "
+                                                       f"retrying this step in {wait} s."})
+                await asyncio.sleep(wait)
                 continue
             raise
         assert report is not None
         return report, messages
-    raise AssertionError("unreachable")
 
 
-def _tool_names() -> set[str]:
-    from app.tools.agent_tools import READ_TOOLS, WRITE_TOOLS
-    from app.graph.signor import GRAPH_TOOLS
-    return {f.__name__ for f in (*READ_TOOLS, *WRITE_TOOLS, *GRAPH_TOOLS)}
+# Waits before retrying a step the provider refused as busy (503, per-minute 429...).
+TRANSIENT_WAITS = (20, 60, 120)
 
 
 def _issue_lines(issues: list[Issue]) -> str:

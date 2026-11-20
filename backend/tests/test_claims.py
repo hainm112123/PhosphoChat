@@ -78,53 +78,56 @@ def test_network_draws_claims_and_hides_rejected(vault, src):
 async def test_failed_capture_records_no_claims(vault):
     from datetime import date
 
+    from tests.conftest import reader_model
+
     from app.agents.jobs import job_agent, run_job
+    from app.agents.reader import reader_agent
     from app.vault.store import StagedSource
     staged = StagedSource(title="ATM note", body=NOTE, source_url="pasted", content_type="note")
-    src = f"{date.today().isoformat()}-atm-note.md"
-    call = {"enzyme": "ATM", "target": "TDP1", "site": "S81", "source": src,
-            "quote": "ATM phosphorylates TDP1 at Ser81 after DNA damage"}
+    relation = {"enzyme": "ATM", "target": "TDP1", "site": "S81",
+                "quote": "ATM phosphorylates TDP1 at Ser81 after DNA damage"}
 
     def fn(messages, info: AgentInfo):
-        if sum(isinstance(m, ModelResponse) for m in messages):
-            raise RuntimeError("model exploded")
-        return ModelResponse(parts=[ToolCallPart("record_relation", call)])
+        raise RuntimeError("model exploded")
 
     async def stream(messages, info: AgentInfo):
-        if sum(isinstance(m, ModelResponse) for m in messages):
-            raise RuntimeError("model exploded")
-        yield {0: DeltaToolCall(name="record_relation", json_args=json.dumps(call))}
+        raise RuntimeError("model exploded")
+        yield {}
 
     async def emit(ev):
         pass
-    with job_agent().override(model=FunctionModel(fn, stream_function=stream)), \
+    with reader_agent().override(model=reader_model(relations=[relation])), \
+            job_agent().override(model=FunctionModel(fn, stream_function=stream)), \
             pytest.raises(RuntimeError, match="model exploded"):
         await run_job(vault, "capture", {}, emit, staged=staged)
-    assert vault.read_relations() == []                 # the claim recorded mid-run was rolled back
+    assert vault.read_relations() == []                 # the claim the reading recorded was rolled back
     assert not vault.relations_path.exists()
 
 
 async def test_capture_records_claims_and_logs_them(vault):
     from datetime import date
 
+    from tests.conftest import reader_model
+
     from app.agents.jobs import job_agent, run_job
+    from app.agents.reader import reader_agent
     from app.vault.store import StagedSource
     staged = StagedSource(title="ATM note", body=NOTE, source_url="pasted", content_type="note")
     src = f"{date.today().isoformat()}-atm-note.md"
     page = ("---\ntitle: ATM\nsummary: ATM and TDP1.\nsources:\n  - " + src + "\n---\n# ATM\n\n"
             "**Summary:** ATM phosphorylates TDP1 at Ser81 [[source: " + src + "]].\n")
-    steps = [
-        [("record_relation", {"enzyme": "ATM", "target": "TDP1", "site": "S81", "source": src,
-                              "quote": "ATM phosphorylates TDP1 at Ser81 after DNA damage"}),
-         ("record_relation", {"enzyme": "ATM", "target": "TDP1", "site": "S999", "source": src,
-                              "quote": "ATM phosphorylates TDP1 at S999 in our assay"})],
-        [("write_page", {"name": "atm", "content": page})],
-        None,
-    ]
+    relations = [{"enzyme": "ATM", "target": "TDP1", "site": "S81",
+                  "quote": "ATM phosphorylates TDP1 at Ser81 after DNA damage"},
+                 {"enzyme": "ATM", "target": "TDP1", "site": "S999",
+                  "quote": "ATM phosphorylates TDP1 at S999 in our assay"}]
+    prompts = []
 
     def calls(messages, info):
         turn = sum(isinstance(m, ModelResponse) for m in messages)
-        return steps[turn] or [(info.output_tools[0].name, {"report": "ok"})]
+        if turn == 0:
+            prompts.append(messages[0].parts[-1].content)
+            return [("write_page", {"name": "atm", "content": page})]
+        return [(info.output_tools[0].name, {"report": "ok"})]
 
     def fn(messages, info: AgentInfo):
         return ModelResponse(parts=[ToolCallPart(n, a) for n, a in calls(messages, info)])
@@ -135,11 +138,13 @@ async def test_capture_records_claims_and_logs_them(vault):
     async def emit(ev):
         pass
     try:
-        with job_agent().override(model=FunctionModel(fn, stream_function=stream)):
+        with reader_agent().override(model=reader_model(relations=relations)), \
+                job_agent().override(model=FunctionModel(fn, stream_function=stream)):
             result = await run_job(vault, "capture", {}, emit, staged=staged)
         assert {c["status"] for c in result["claims"]} == {"confirmed", "new"}
         assert "Relations recorded: 2 (new: 1, conflicting: 0)" in vault.log_entries()[0].body
         assert len(vault.read_relations()) == 2
+        assert "# Relations" in prompts[0] and "ATM phosphorylates TDP1 at Ser999" in prompts[0]
     finally:
         signor._get_driver().execute_query("MATCH ()-[r:CLAIMED {vault: $v}]->() DELETE r", v=vault.name)
 

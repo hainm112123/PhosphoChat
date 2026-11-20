@@ -20,8 +20,17 @@ def skill_names() -> list[str]:
     return sorted(p.parent.name for p in SKILLS_DIR.glob("*/SKILL.md"))
 
 
+# Sync is capture over several sources: the same writing skill.
+ALIASES = {"sync": "capture"}
+
+
 def skill(name: str) -> str:
+    """A skill's instructions, without its frontmatter (the model doesn't need the description)."""
+    name = ALIASES.get(name, name)
     path = SKILLS_DIR / name / "SKILL.md"
     if name not in skill_names() or not path.is_file():
         raise KeyError(name)
-    return path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8")
+    if text.startswith("---"):
+        text = text.split("---", 2)[2]
+    return text.strip() + "\n"

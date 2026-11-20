@@ -47,7 +47,8 @@ class JobFailed(Exception):
     """A job step failed in a way the user should read as-is (the vault is rolled back)."""
 
 
-BAD_TOOL_CALL_MARKERS = ("tool call validation failed", "not in request.tools", "tool_use_failed")
+BAD_TOOL_CALL_MARKERS = ("tool call validation failed", "not in request.tools", "tool_use_failed",
+                         "output_parse_failed", "Parsing failed. The model generated output")
 
 
 def is_bad_tool_call(e: BaseException) -> bool:
@@ -56,19 +57,41 @@ def is_bad_tool_call(e: BaseException) -> bool:
     return isinstance(e, ModelAPIError) and any(m in str(e) for m in BAD_TOOL_CALL_MARKERS)
 
 
+TRANSIENT_STATUS = {429, 500, 502, 503, 504}
+
+
+def is_transient(e: BaseException) -> bool:
+    """The provider is overloaded or briefly failing (e.g. Gemini 503 "model overloaded", 429 per
+    minute): the same request is likely to work after a short wait. A daily quota is not."""
+    if isinstance(e, ModelAPIError) and not isinstance(e, ModelHTTPError):
+        return bool(re.search(r"timeout|timed out|temporarily unavailable|connection reset", str(e), re.I))
+    if not isinstance(e, ModelHTTPError) or e.status_code not in TRANSIENT_STATUS or is_too_large(e):
+        return False
+    return not re.search(r"per ?day|PerDay|daily", str(e.body), re.I)
+
+
 def is_too_large(e: BaseException) -> bool:
     """A single request bigger than the provider allows (e.g. Groq free tier: HTTP 413
     'Request too large ... tokens per minute'). Waiting doesn't help; a smaller request does."""
     return (isinstance(e, ModelHTTPError) and e.status_code == 413) or "Request too large" in str(e)
 
 
+def _provider_message(e: BaseException) -> str:
+    """The provider's own explanation (e.g. which limit: input, output, per minute or per day)."""
+    body = getattr(e, "body", None)
+    msg = body.get("error", {}).get("message", "") if isinstance(body, dict) else str(body or "")
+    msg = re.sub(r" in organization `[^`]*`| service tier `[^`]*`", "", msg.split(" Need more tokens?")[0])
+    return msg[:300]
+
+
 def explain_error(e: Exception) -> str:
     if isinstance(e, JobFailed):
         return str(e)
     if is_too_large(e):
-        return ("The request was larger than the model's per-minute token limit allows (HTTP 413). "
+        detail = _provider_message(e)
+        return ("The request was larger than the model's per-minute token limits allow. "
                 "Pick a model with a higher limit on the Models page, or lower CHAT_CONTEXT_CHARS / "
-                "TOOL_OUTPUT_CHARS.")
+                "TOOL_OUTPUT_CHARS." + (f"\nProvider says: {detail}" if detail else ""))
     if is_bad_tool_call(e):
         m = re.search(r"call tool '([^']+)'", str(e))
         return (f"The model tried to use a tool that doesn't exist{f' ({m.group(1)})' if m else ''} and the "
@@ -76,11 +99,14 @@ def explain_error(e: Exception) -> str:
                 "(Models page).")
     if isinstance(e, ModelHTTPError):
         if e.status_code == 429:
-            detail = e.body.get("error", {}).get("message", "") if isinstance(e.body, dict) else ""
+            detail = _provider_message(e)
+            if "per day" in detail:
+                return ("The model's daily token quota is used up (HTTP 429). Try again later, or pick "
+                        f"another model on the Models page.\nProvider says: {detail}")
             return ("The model provider's rate limit was reached (HTTP 429) even after waiting. "
                     "If a single request is larger than the per-minute limit, waiting can't help: "
                     "lower TOOL_OUTPUT_CHARS, or switch MODEL to one with a higher limit."
-                    + (f"\nProvider says: {detail.split(' Need more tokens?')[0]}" if detail else ""))
+                    + (f"\nProvider says: {detail}" if detail else ""))
         if e.status_code in (401, 403):
             return f"The model provider rejected the API key (HTTP {e.status_code}). Check .env."
         if e.status_code == 404:

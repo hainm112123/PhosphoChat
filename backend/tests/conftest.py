@@ -78,3 +78,32 @@ def neo4j_ready():
         signor.graph_overview()
     except RuntimeError as e:
         pytest.skip(f"Neo4j not available: {e}")
+
+
+@pytest.fixture(autouse=True)
+def fresh_reading_cache():
+    """Readings are cached per source text and model; tests reuse the same text."""
+    from app.agents import reader
+    reader._cache.clear()
+    yield
+    reader._cache.clear()
+
+
+def reader_model(findings=(), relations=()):
+    """A scripted reader: every part gets these findings and relations (dicts)."""
+    from pydantic_ai.messages import ModelResponse, ToolCallPart
+    from pydantic_ai.models.function import FunctionModel
+
+    def fn(messages, info):
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name,
+                                                 {"findings": list(findings), "relations": list(relations)})])
+    return FunctionModel(fn)
+
+
+@pytest.fixture(autouse=True)
+def offline_reader():
+    """Capture and sync always read their sources through the reader agent first: by default
+    it finds nothing, so no test reaches a real provider. Tests override it to script notes."""
+    from app.agents.reader import reader_agent
+    with reader_agent().override(model=reader_model()):
+        yield

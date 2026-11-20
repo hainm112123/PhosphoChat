@@ -54,7 +54,10 @@ LOCAL_VARS = ["OLLAMA_BASE_URL", "OLLAMA_API_KEY", "LMSTUDIO_BASE_URL", "VLLM_BA
 
 @pytest.fixture
 def clean_env(monkeypatch):
+    import os
     for v in LOCAL_VARS:
+        monkeypatch.delenv(v, raising=False)
+    for v in [k for k in os.environ if k.startswith("COMPAT_")]:  # endpoints set in the real .env
         monkeypatch.delenv(v, raising=False)
     monkeypatch.setattr(llm, "in_docker", lambda: False)
     llm._build.cache_clear()

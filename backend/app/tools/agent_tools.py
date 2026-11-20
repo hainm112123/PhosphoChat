@@ -1,8 +1,11 @@
-"""The only tools agents get: narrow vault reads/writes and the PhosphoSIGNOR graph.
+"""The only tools agents get: narrow vault reads/writes and the kinase-substrate graph.
 
 No shell, no code execution, no general file access. Fixable mistakes (bad page name, unknown
 protein, missing frontmatter) become ModelRetry so the model sees the message and corrects
 its call; every result is capped to TOOL_OUTPUT_CHARS so one call can't blow the context.
+
+Tool definitions are sent with every model request, so each agent gets only the tools its
+work needs, with one-line descriptions (see JOB_TOOLS and chat_toolsets).
 """
 
 from __future__ import annotations
@@ -14,9 +17,8 @@ from typing import Any, Literal
 
 from pydantic_ai import FunctionToolset, ModelRetry, RunContext
 
-from app import prompts
 from app.config import get_settings
-from app.graph import signor
+from app.graph import agent_tools as graph_tools
 from app.vault.store import Vault, VaultError, page_links
 
 # --------------------------------------------------------------------------- deps / output
@@ -69,8 +71,7 @@ def out(obj: Any) -> str:
     else:
         obj, cut = _shrink(obj, budget)
         if cut and isinstance(obj, dict):
-            obj["note"] = ("Result shortened to fit the context. Use limit/min_score/offset or a "
-                           "narrower query to see other items.")
+            obj["note"] = "Result shortened to fit the context. Ask a narrower question to see other items."
         text = json.dumps(obj, ensure_ascii=False, default=str)
     if len(text) > budget:
         text = text[:budget] + f"\n...[truncated {len(text) - budget} chars]"
@@ -104,45 +105,40 @@ def _error_as_result(fn):
 
 @_error_as_result
 def read_index(ctx: RunContext[Deps]) -> str:
-    """Read index.md: every wiki page with a one-line description. Start here."""
+    """index.md: every wiki page with a one-line description."""
     return out(ctx.deps.vault.read_index())
 
 
 @_error_as_result
 def list_pages(ctx: RunContext[Deps]) -> str:
-    """List wiki pages with title, summary, last_updated and sources."""
+    """Wiki pages with title, summary, last_updated and sources."""
     return out(ctx.deps.vault.list_pages())
 
 
 @_error_as_result
 def read_page(ctx: RunContext[Deps], name: str) -> str:
-    """Read one wiki page (frontmatter + body) by name, e.g. 'protein-kinase-c'."""
+    """One wiki page (frontmatter and body) by name, e.g. 'protein-kinase-c'."""
     return out(ctx.deps.vault.read_page(name))
 
 
 @_error_as_result
-def search_pages(ctx: RunContext[Deps], query: str,
-                 scope: Literal["wiki", "sources", "all"] = "wiki", limit: int = 10) -> str:
-    """Case-insensitive text search over wiki pages and/or source notes. Returns names and matching lines."""
-    return out(ctx.deps.vault.search(query, scope, max(1, min(limit, 30))))
+def search_pages(ctx: RunContext[Deps], query: str, scope: Literal["wiki", "sources", "all"] = "wiki") -> str:
+    """Case-insensitive text search over wiki pages and/or sources: names and matching lines."""
+    return out(ctx.deps.vault.search(query, scope, 10))
 
 
 @_error_as_result
 def list_sources(ctx: RunContext[Deps]) -> str:
-    """List files in sources/ with title, content_type and ingested_at."""
+    """Files in sources/ with title, content_type and ingested_at."""
     return out(ctx.deps.vault.list_sources())
 
 
 @_error_as_result
-def read_source(ctx: RunContext[Deps], name: str, offset: int = 0, limit: int = 150) -> str:
-    """Read a source by filename, a page of lines at a time. If remaining_lines > 0, call again with offset."""
-    return out(ctx.deps.vault.read_source(name, offset, limit))
-
-
-@_error_as_result
-def read_log(ctx: RunContext[Deps], limit: int = 10) -> str:
-    """Read the newest log.md entries (capture, sync, lint, digest)."""
-    return out([e.as_dict() for e in ctx.deps.vault.log_entries()[: max(1, min(limit, 50))]])
+def vault_claims(ctx: RunContext[Deps], protein: str | None = None,
+                 status: Literal["confirmed", "new", "conflicting"] | None = None) -> str:
+    """Kinase-substrate claims from this vault's sources, with status against the databases, quote and source."""
+    from app.knowledge.claims import list_claims
+    return out(list_claims(ctx.deps.vault, protein, status))
 
 
 # --------------------------------------------------------------------------- vault: write
@@ -152,9 +148,8 @@ def write_page(ctx: RunContext[Deps], name: str, content: str) -> str:
     """Create or overwrite a whole wiki page.
 
     Args:
-        name: lowercase-hyphenated page name, e.g. 'protein-kinase-c' (no folder, no .md).
-        content: the complete page: YAML frontmatter with title, summary and sources
-            (list of source filenames), then the Markdown body. last_updated is set for you.
+        name: lowercase-hyphenated, e.g. 'protein-kinase-c'.
+        content: the complete page: frontmatter (title, summary, sources), then the Markdown body.
     """
     v = ctx.deps.vault
     status = v.write_page(name, content)
@@ -167,68 +162,19 @@ def write_page(ctx: RunContext[Deps], name: str, content: str) -> str:
     missing = sorted(l for l in links if not v.page_exists(l))
     missing_src = sorted(s for s in src_links if s not in sources)
     result: dict[str, Any] = {"status": status, "name": name}
-    if missing or missing_src:
-        result["warning"] = ("Links to pages that don't exist yet: "
-                             f"{[f'[[{m}]]' for m in missing]} "
-                             f"{[f'[[source: {s}]]' for s in missing_src]}. "
-                             "Create those pages, or fix the links before finishing.")
+    if missing:
+        result["note"] = (f"Not written yet: {', '.join(missing)}. Write the ones worth a page; links "
+                          "still missing at the end become plain text, so don't rewrite a page just for them.")
+    if missing_src:
+        result["warning"] = (f"Unknown sources cited: {', '.join(missing_src)}. Cite exact source filenames.")
     return out(result)
 
 
 @_retry_on_vault_error
 def upsert_index(ctx: RunContext[Deps], name: str, description: str,
                  section: Literal["Pages", "Recaps"] = "Pages") -> str:
-    """Add or update a page's line in index.md: '- [[name]] — description'."""
+    """Add or update a page's line in index.md."""
     return out({"status": ctx.deps.vault.upsert_index(name, description, section), "name": name})
-
-
-# --------------------------------------------------------------------------- relation claims
-
-@_retry_on_vault_error
-def record_relation(ctx: RunContext[Deps], enzyme: str, target: str, source: str, quote: str,
-                    mechanism: Literal["phosphorylation", "dephosphorylation"] = "phosphorylation",
-                    site: str | None = None,
-                    effect: Literal["up-regulates", "down-regulates", "unknown"] = "unknown",
-                    page: str | None = None) -> str:
-    """Record one kinase/phosphatase -> substrate statement the source makes, so it can be compared with the databases.
-
-    Args:
-        enzyme: the kinase or phosphatase (gene symbol or UniProt id), e.g. 'ATM'.
-        target: the substrate protein, e.g. 'TDP1'.
-        source: the source note filename the statement comes from.
-        quote: the sentence from the source that states it, copied exactly (no paraphrase).
-        mechanism: phosphorylation or dephosphorylation.
-        site: the residue if the source gives one, e.g. 'Ser81' or 'S81'.
-        effect: what the modification does to the target, if the source says.
-        page: the wiki page where you wrote this finding, if any.
-    """
-    from app.knowledge.claims import record, statuses
-    claim, added = record(ctx.deps.vault, enzyme=enzyme, target=target, site=site, mechanism=mechanism,
-                          effect=effect, source=source, quote=quote, page=page)
-    status = statuses([claim])[0]
-    if added:
-        ctx.deps.claims.append(status)
-    return out({"recorded": added, "duplicate": not added, "id": claim["id"],
-                "status": status["status"], "detail": status["detail"]})
-
-
-@_error_as_result
-def vault_claims(ctx: RunContext[Deps], protein: str | None = None,
-                 status: Literal["confirmed", "new", "conflicting"] | None = None) -> str:
-    """Kinase-substrate claims from this vault's sources, each with its status against the databases (confirmed / new / conflicting), the quote and the source."""
-    from app.knowledge.claims import list_claims
-    return out(list_claims(ctx.deps.vault, protein, status))
-
-
-# --------------------------------------------------------------------------- skills (chat)
-
-@_error_as_result
-def load_skill(ctx: RunContext[Deps], name: Literal["query", "capture", "sync", "lint", "digest"]) -> str:
-    """Load a skill's instructions (SKILL.md), e.g. 'query' for how to answer and cite."""
-    try:
-        return out(prompts.skill(name))
-    except KeyError:
-        raise VaultError(f"No skill '{name}'. Available: {', '.join(prompts.skill_names())}.") from None
 
 
 # --------------------------------------------------------------------------- graph
@@ -248,22 +194,34 @@ def _graph_tool(fn):
 
 # --------------------------------------------------------------------------- toolsets
 
-READ_TOOLS = [read_index, list_pages, read_page, search_pages, list_sources, read_source, read_log,
-              vault_claims]
-WRITE_TOOLS = [write_page, upsert_index, record_relation]
+WRITE_TOOLS = [write_page, upsert_index]
+_WRITER_READS = [read_index, list_pages, read_page]
+JOB_TOOLS: dict[str, list] = {   # per job kind: everything else is left out of the request
+    "capture": [*_WRITER_READS, *WRITE_TOOLS],
+    "sync": [*_WRITER_READS, *WRITE_TOOLS],
+    "digest": [*_WRITER_READS, *WRITE_TOOLS],
+    "lint": [*_WRITER_READS, search_pages, list_sources, *WRITE_TOOLS],
+}
+CHAT_TOOLS = [read_page, search_pages, vault_claims]
 
 
-def vault_read_toolset() -> FunctionToolset[Deps]:
-    return FunctionToolset(READ_TOOLS, max_retries=3)
+def job_toolsets() -> list:
+    """The tools of every job kind; each run sees only its kind's (ctx.deps.kind)."""
+    names = {k: {f.__name__ for f in fs} for k, fs in JOB_TOOLS.items()}
+    keep = lambda ctx, tool: tool.name in names[ctx.deps.kind]  # noqa: E731
+    reads = {f.__name__: f for fs in JOB_TOOLS.values() for f in fs if f not in WRITE_TOOLS}
+    return [FunctionToolset(list(reads.values()), max_retries=3).filtered(keep),
+            FunctionToolset(WRITE_TOOLS, max_retries=5).filtered(keep)]
 
 
-def vault_write_toolset() -> FunctionToolset[Deps]:
-    return FunctionToolset(WRITE_TOOLS, max_retries=5)
+def job_tool_names(kind: str) -> set[str]:
+    return {f.__name__ for f in JOB_TOOLS[kind]}
 
 
-def skill_toolset() -> FunctionToolset[Deps]:
-    return FunctionToolset([load_skill], max_retries=2)
+def chat_toolsets() -> list:
+    return [FunctionToolset(CHAT_TOOLS, max_retries=3),
+            FunctionToolset([_graph_tool(f) for f in graph_tools.GRAPH_TOOLS], max_retries=3)]
 
 
-def graph_toolset() -> FunctionToolset[Deps]:
-    return FunctionToolset([_graph_tool(f) for f in signor.GRAPH_TOOLS], max_retries=3)
+def chat_tool_names() -> set[str]:
+    return {f.__name__ for f in (*CHAT_TOOLS, *graph_tools.GRAPH_TOOLS)}

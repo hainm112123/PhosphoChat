@@ -30,6 +30,7 @@ class Deps:
     created: list[str] = field(default_factory=list)
     updated: list[str] = field(default_factory=list)
     claims: list[dict] = field(default_factory=list)   # relation claims recorded in this run
+    writes: dict[str, int] = field(default_factory=dict)  # successful write_page calls per page
 
     def touched(self) -> list[str]:
         return self.created + [p for p in self.updated if p not in self.created]
@@ -152,8 +153,16 @@ def write_page(ctx: RunContext[Deps], name: str, content: str) -> str:
         content: the complete page: frontmatter (title, summary, sources), then the Markdown body.
     """
     v = ctx.deps.vault
+    key = v.page_name(name)
+    if ctx.deps.writes.get(key, 0) >= MAX_WRITES_PER_PAGE:
+        # Small models can rewrite the same page until the request limit ends the job (seen:
+        # 19 identical successful writes). A plain answer (not a retry) lets the run go on.
+        return out({"status": "not written", "name": key,
+                    "note": f"'{key}' was already written {MAX_WRITES_PER_PAGE} times in this run, so it is kept "
+                            "as it is. Write the other pages you planned, or return the final report."})
     status = v.write_page(name, content)
     name = v.page_name(name)
+    ctx.deps.writes[name] = ctx.deps.writes.get(name, 0) + 1
     target = ctx.deps.created if status == "created" else ctx.deps.updated
     if name not in ctx.deps.created and name not in target:
         target.append(name)
@@ -195,6 +204,7 @@ def _graph_tool(fn):
 # --------------------------------------------------------------------------- toolsets
 
 WRITE_TOOLS = [write_page, upsert_index]
+MAX_WRITES_PER_PAGE = 3  # per page per run; the fact-check revision turn writes once more at most
 _WRITER_READS = [read_index, list_pages, read_page]
 JOB_TOOLS: dict[str, list] = {   # per job kind: everything else is left out of the request
     "capture": [*_WRITER_READS, *WRITE_TOOLS],

@@ -281,3 +281,16 @@ def test_links_to_pages_not_written_become_plain_text():
     page = "See [[marcks]], [[pkc|protein kinase C]] and [[atm#Sites]]. Keep [[source: a.md]] and [[tdp1]]."
     assert _unlink(page, {"marcks", "pkc", "atm"}) == (
         "See marcks, protein kinase C and atm. Keep [[source: a.md]] and [[tdp1]].")
+
+
+async def test_a_page_rewritten_again_and_again_is_capped(vault):
+    """A small model rewrote one page 19 times until the request limit failed the job: after 3
+    writes of a page, write_page keeps it as it is and tells the model to move on."""
+    staged, src = _stage()
+    steps = [[("write_page", {"name": "marcks", "content": _page(src)})] for _ in range(6)]
+    model = scripted([*steps, _final(report="done")])
+    with job_agent().override(model=model):
+        result, events = await _collect(vault, "capture", {}, staged)
+    notes = [e["content"] for e in events if e["type"] == "tool_result" and e["name"] == "write_page"]
+    assert result["pages_created"] == ["marcks"] and len(notes) == 6
+    assert sum("not written" in str(n) for n in notes) == 3     # writes 4-6 were declined

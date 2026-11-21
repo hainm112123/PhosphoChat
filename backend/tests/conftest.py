@@ -81,9 +81,11 @@ def neo4j_ready():
 
 
 @pytest.fixture(autouse=True)
-def fresh_reading_cache():
-    """Readings are cached per source text and model; tests reuse the same text."""
+def fresh_reading_cache(monkeypatch):
+    """Readings are cached per source text and model; tests reuse the same text. The disk
+    cache (READING_CACHE_DIR, set by the evaluation) is off unless a test turns it on."""
     from app.agents import reader
+    monkeypatch.delenv("READING_CACHE_DIR", raising=False)
     reader._cache.clear()
     yield
     reader._cache.clear()

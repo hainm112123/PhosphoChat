@@ -17,7 +17,7 @@ from pathlib import Path
 import yaml
 
 from eval.common import (EVAL_DIR, RESULTS, add_groq_key_arg, app_client, load, save, set_role_model, slug,
-                         sse_events, use_groq_key)
+                         sse_events, use_groq_key, record_run)
 
 
 def ask(client, vault: str, question: str) -> dict:
@@ -51,15 +51,17 @@ def main() -> None:
     ap.add_argument("--vault", required=True)
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--pause", type=float, default=0, help="seconds between questions (rate limits)")
+    ap.add_argument("--guard-model", help="topic-check model (default: the chat model)")
+    ap.add_argument("--tag", default="", help="suffix for the result file, e.g. it3 (one file per iteration)")
     add_groq_key_arg(ap)
     a = ap.parse_args()
     use_groq_key(a.groq_key)
     questions = yaml.safe_load(Path(EVAL_DIR / "questions.yaml").read_text(encoding="utf-8"))
-    path = RESULTS / f"chat-{a.vault}-{slug(a.chat_model)}.json"
+    path = RESULTS / f"chat-{a.vault}-{slug(a.chat_model)}{'-' + a.tag if a.tag else ''}.json"
     out = load(path, {"chat_model": a.chat_model, "vault": a.vault, "answers": {}})
     set_role_model("chat", a.chat_model)
     from app.config import get_settings
-    get_settings().guard_model = "groq:openai/gpt-oss-20b"  # one topic-check model for every run
+    get_settings().guard_model = a.guard_model or a.chat_model
     with app_client() as client:
         for q in questions:
             if (a.only and q["id"] not in a.only) or (q["id"] in out["answers"] and not out["answers"][q["id"]].get("error")):
@@ -72,6 +74,12 @@ def main() -> None:
                   f"resets {len(row['resets'])}", flush=True)
             if a.pause:
                 time.sleep(a.pause)
+    answers = out["answers"].values()
+    run = record_run("chat", vault=a.vault, result=path.name, questions=len(out["answers"]),
+                     errors=sum(1 for r in answers if r.get("error")),
+                     input_tokens=sum((r.get("usage") or {}).get("input_tokens", 0) for r in answers),
+                     requests=sum((r.get("usage") or {}).get("requests", 0) for r in answers))
+    print(f"run {run} -> {path.name}")
 
 
 if __name__ == "__main__":

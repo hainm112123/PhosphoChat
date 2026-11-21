@@ -18,8 +18,8 @@ from pathlib import Path
 
 import yaml
 
-from eval.common import EVAL_DIR, RESULTS, add_groq_key_arg, load, save, use_groq_key
-from eval.judges import JUDGE_MODEL, judge
+from eval.common import EVAL_DIR, RESULTS, add_groq_key_arg, load, save, slug, use_groq_key
+from eval.judges import judge, judge_model, set_judge_model
 
 PAGE_RE = re.compile(r"\[\[(?!source:)([^\]|#]+)(?:[|#][^\]]*)?\]\]")
 SOURCE_RE = re.compile(r"\[\[source:\s*([^\]]+?)\s*\]\]")
@@ -47,20 +47,9 @@ def gold(spec: dict) -> dict:
 
 
 def citation_checks(answer: str, vault) -> dict:
-    from app.graph import signor
-    pages = {p.strip().lower() for p in PAGE_RE.findall(answer)}
-    sources = {s.strip() for s in SOURCE_RE.findall(answer)}
-    known_pages, known_sources = set(vault.page_names()), {p.name for p in vault.sources_dir.iterdir()}
-    sids, pmids = set(SIGNOR_RE.findall(answer)), set(PMID_RE.findall(answer))
-    ok_sids = {s for s in sids if signor._run(
-        "MATCH ()-[m:MODIFIES]->() WHERE $s IN m.signor_ids RETURN 1 AS x LIMIT 1", s=s)}
-    vault_text = " ".join(p.read_text(encoding="utf-8", errors="replace") for p in vault.sources_dir.glob("*.md"))
-    ok_pmids = {p for p in pmids if p in vault_text or signor._run(
-        "MATCH ()-[m:MODIFIES]->() WHERE $p IN m.pmids RETURN 1 AS x LIMIT 1", p=p)}
-    return {"pages": len(pages), "pages_valid": len(pages & known_pages),
-            "sources": len(sources), "sources_valid": len(sources & known_sources),
-            "signor_ids": len(sids), "signor_valid": len(ok_sids), "pmids": len(pmids), "pmids_valid": len(ok_pmids),
-            "invalid": sorted((pages - known_pages) | (sources - known_sources) | (sids - ok_sids) | (pmids - ok_pmids))}
+    """The app's own check (app/knowledge/citations.py), so eval and app agree on what's invalid."""
+    from app.knowledge.citations import check_citations
+    return check_citations(answer, vault).counts()
 
 
 def database_checks(answer: str, q: dict, g: dict) -> dict:
@@ -101,14 +90,15 @@ def retrieved_text(row: dict, vault, question: str = "") -> str:
     return "\n\n".join(parts)[:60_000] or "(nothing retrieved)"
 
 
-async def main_async(fname: str) -> None:
+async def main_async(fname: str, tier: str = "judge") -> None:
     from app.api.deps import registry
     run = load(RESULTS / fname)
     questions = {q["id"]: q for q in yaml.safe_load(Path(EVAL_DIR / "questions.yaml").read_text(encoding="utf-8"))}
     vault = registry().get(run["vault"])
-    path = RESULTS / f"score-{fname}"
+    who = "code" if tier == "code" else slug(judge_model())
+    path = RESULTS / f"score-{fname.removesuffix('.json')}-{who}.json"
     out = load(path, {"file": fname, "chat_model": run["chat_model"], "vault": run["vault"],
-                      "judge": JUDGE_MODEL, "answers": {}})
+                      "judge": None if tier == "code" else judge_model(), "answers": {}})
     for qid, row in run["answers"].items():
         if qid in out["answers"]:
             continue
@@ -128,9 +118,14 @@ async def main_async(fname: str) -> None:
                 s["database"] = database_checks(ans, q, g)
                 facts = facts or [f"Kinases reported in the databases include: {', '.join(g.get('top', []))} "
                                   f"(of {len(g.get('all', []))} in total)."]
-            grade = await judge("answer", f"QUESTION: {q['question']}\n\nKEY FACTS:\n- " + "\n- ".join(facts)
-                                + f"\n\nRETRIEVED CONTEXT:\n{retrieved_text(row, vault, q['question'])}\n\nANSWER:\n{ans}")
-            s["judge"] = grade.model_dump()
+            if tier == "judge":
+                try:
+                    grade = await judge("answer", f"QUESTION: {q['question']}\n\nKEY FACTS:\n- " + "\n- ".join(facts)
+                                        + f"\n\nRETRIEVED CONTEXT:\n{retrieved_text(row, vault, q['question'])}\n\nANSWER:\n{ans}")
+                except Exception as e:  # noqa: BLE001 - not saved, so the next run tries this answer again
+                    print(f"{qid}: judge failed ({type(e).__name__}); skipped for now", flush=True)
+                    continue
+                s["judge"] = grade.model_dump()
         out["answers"][qid] = s
         save(path, out)
         print(f"{qid}: {s.get('judge') or s.get('pass')}", flush=True)
@@ -139,10 +134,14 @@ async def main_async(fname: str) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--file", required=True)
+    ap.add_argument("--tier", choices=["code", "judge"], default="judge",
+                    help="code: citation/database/refusal checks only (free); judge: plus the LLM judge")
+    ap.add_argument("--judge-model", help="default: JUDGE_MODEL env var, else compat:cliproxy:claude-sonnet-4-6")
     add_groq_key_arg(ap)
     a = ap.parse_args()
     use_groq_key(a.groq_key)
-    asyncio.run(main_async(a.file))
+    set_judge_model(a.judge_model)
+    asyncio.run(main_async(a.file, a.tier))
 
 
 if __name__ == "__main__":

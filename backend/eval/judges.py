@@ -1,5 +1,5 @@
 """LLM judges used by the scoring scripts. Each returns structured output and runs at temperature 0
-on JUDGE_MODEL (env; default google:gemini-3.5-flash). The scoring scripts take
+on the judge model (--judge-model, else the JUDGE_MODEL env var, else compat:cliproxy:claude-sonnet-4-6).
 --groq-key for a groq: judge. Judges never see which model wrote what."""
 
 from __future__ import annotations
@@ -15,8 +15,23 @@ from pydantic_ai.settings import ModelSettings
 
 from app.llm import get_model
 
-JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "google:gemini-3.5-flash")
-SETTINGS = ModelSettings(temperature=0, max_tokens=16000)
+# gpt-oss-120b-medium via the proxy was tried as a cheaper judge: on long prompts it returns
+# reasoning only, and the proxy refuses JSON mode for it, so it can't judge reliably.
+JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "compat:cliproxy:claude-sonnet-4-6")
+_judge_model = [JUDGE_MODEL]
+
+
+def set_judge_model(model: str | None) -> str:
+    """--judge-model on the scoring scripts; returns the model in use."""
+    if model:
+        _judge_model[0] = model
+    return _judge_model[0]
+
+
+def judge_model() -> str:
+    return _judge_model[0]
+# 8000: with 16000 the proxy's gpt-oss replies with reasoning only (no answer).
+SETTINGS = ModelSettings(temperature=0, max_tokens=8000)
 MAX_SOURCE_CHARS = 400_000
 
 
@@ -105,7 +120,7 @@ async def judge(kind: str, prompt: str, retries: int = 4):
     """Run one judge; waits and retries on rate limits (free tiers)."""
     for attempt in range(retries):
         try:
-            r = await _agent(kind).run(prompt, model=get_model(JUDGE_MODEL), model_settings=SETTINGS)
+            r = await _agent(kind).run(prompt, model=get_model(judge_model()), model_settings=SETTINGS)
             return r.output
         except Exception as e:  # noqa: BLE001
             if attempt == retries - 1:

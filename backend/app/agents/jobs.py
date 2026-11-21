@@ -440,5 +440,6 @@ async def _fact_check(vault: Vault, sources: list[str], deps: JobContext, messag
               "support:\n" + _issue_lines(issues) + "\n\nFor each one, remove the claim or rewrite "
               "it to say only what the source states. Use write_page with the whole corrected page; "
               "change nothing else. Then return the final report again.")
+    deps.writes.clear()  # the revision may rewrite any page, whatever the writing turn did
     revised, _ = await _agent_turn(prompt, deps, model, emit, history=messages)
     return result, revised

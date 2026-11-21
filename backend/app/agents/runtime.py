@@ -48,7 +48,8 @@ class JobFailed(Exception):
 
 
 BAD_TOOL_CALL_MARKERS = ("tool call validation failed", "not in request.tools", "tool_use_failed",
-                         "output_parse_failed", "Parsing failed. The model generated output")
+                         "output_parse_failed", "Parsing failed. The model generated output",
+                         "MALFORMED_FUNCTION_CALL")  # Gemini (also through CLIProxyAPI): a garbled tool call
 
 
 def is_bad_tool_call(e: BaseException) -> bool:

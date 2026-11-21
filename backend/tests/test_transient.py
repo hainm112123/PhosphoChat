@@ -109,3 +109,12 @@ def test_chat_retries_once_when_the_provider_is_busy(make_client, monkeypatch):
         with c.stream("POST", "/api/vaults/default/chat", json={"message": "What about ATM?"}) as r:
             raw = r.read().decode()
     assert "provider is busy" in raw and "event: error" not in raw and calls["n"] == 2
+
+
+def test_a_garbled_gemini_tool_call_counts_as_a_slip():
+    from pydantic_ai import ModelAPIError
+
+    from app.agents.runtime import is_bad_tool_call
+    e = ModelAPIError(model_name="gemini-3-flash",
+                      message="upstream returned zero output with finishReason MALFORMED_FUNCTION_CALL")
+    assert is_bad_tool_call(e)

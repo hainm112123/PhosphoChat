@@ -14,9 +14,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
+import os
 import logging
 import re
 from collections.abc import Awaitable, Callable
+from collections import OrderedDict
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from typing import Literal
@@ -38,19 +41,24 @@ MAIN_SECTIONS = re.compile(
     r"limitations( of (the|this) study)?", re.I)
 OLD_RESULT_CHARS = 1500  # tool results from earlier steps are cut to this in an agent's history
 
+# Measured with eval/reader_variants.py (gemini-3-flash, two runs): asking for every distinct result
+# (up to 10) instead of "up to 5 of the most important" found all 8 key facts of nature18003 in
+# both runs (old prompt: 4 and 6 of 8), with the same share of verbatim quotes.
 READER_RULES = """\
 You read one part of a scientific source for a research wiki about kinases, substrates, proteins,
 drugs and diseases. Extract only what this part states; never add outside knowledge.
 
-- findings: up to 5 of the most important results or statements in this part. For each, a short
-  plain statement and a quote that supports it, copied character for character from the text
-  (one sentence or clause, under 300 characters).
+- findings: every distinct result in this part, up to 10: each measured effect, comparison,
+  number, named protein, phosphosite or drug finding, and each conclusion the authors draw. For
+  each, a short plain statement that keeps the numbers and names, and a quote that supports it,
+  copied character for character from the text (one sentence or clause, under 300 characters).
+  Prefer specific results over general background.
 - relations: every explicit statement that a kinase or phosphatase phosphorylates or
   dephosphorylates a protein (optionally at a site such as S81 or Thr308). Use gene symbols.
   Give the quote that states it, copied exactly. Skip correlations, binding, co-expression,
   pathway mentions, hypotheses and negative results.
 
-Return empty lists for parts with nothing of this kind.
+Return empty lists only for parts with no results (references, acknowledgements, boilerplate).
 """
 
 
@@ -217,9 +225,10 @@ async def read_in_parts(vault: Vault, source: str, emit: Emit, claims: list, mod
     s = get_settings()
     _, body = split_frontmatter(vault.source_path(source).read_text(encoding="utf-8", errors="replace"))
     key = (hashlib.sha256(body.encode("utf-8")).hexdigest(), model_name(model, "job"),
-           s.capture_part_chars, s.capture_skip_sections)
-    if key in _cache:  # a retried capture: reuse the reading, only the claims (rolled back) are recorded again
-        cached = _cache[key]
+           s.capture_part_chars, s.capture_skip_sections,
+           hashlib.sha256(READER_RULES.encode("utf-8")).hexdigest()[:12])  # a new reader prompt reads again
+    cached = _cache.get(key) or _disk_get(key)
+    if cached is not None:  # a retried capture: reuse the reading, only the claims (rolled back) are recorded again
         notes = replace(cached, source=source, claims_added=0)
         for r in cached.relations:
             claim, added = _record(vault, r, source)
@@ -284,6 +293,7 @@ async def read_in_parts(vault: Vault, source: str, emit: Emit, claims: list, mod
         _cache[key] = notes
         while len(_cache) > 50:
             _cache.pop(next(iter(_cache)))
+        _disk_put(key, notes)
     await emit({"type": "info", "message": (
         f"Read {source} in {len(parts)} parts: {len(notes.findings)} findings, {notes.claims_added} relations recorded"
         + (f", {notes.failed_parts} parts skipped" if notes.failed_parts else "") + ".")})
@@ -294,11 +304,50 @@ async def read_in_parts(vault: Vault, source: str, emit: Emit, claims: list, mod
 _cache: dict[tuple, Notes] = {}
 
 
+def _disk_file(key: tuple):
+    """READING_CACHE_DIR (unset in the app; the evaluation sets it) keeps readings across
+    processes, so trying a new writer prompt doesn't pay for reading the papers again."""
+    folder = os.environ.get("READING_CACHE_DIR", "").strip()
+    if not folder:
+        return None
+    from pathlib import Path
+    name = hashlib.sha256(json.dumps(key, default=str).encode("utf-8")).hexdigest()[:32]
+    return Path(folder) / f"{name}.json"
 
-# After the task (with its notes), the rest of an agent's history is kept under about this many
-# characters: every request re-sends the whole history, so on a per-request cap of 8,000 tokens
-# a growing history is what overflows, and on a daily cap it is what the job spends.
-HISTORY_CHARS = 14000
+
+def _disk_get(key: tuple) -> Notes | None:
+    path = _disk_file(key)
+    if path is None or not path.is_file():
+        return None
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+        return Notes(source=d["source"], parts=d["parts"],
+                     findings=[(w, Finding(**f)) for w, f in d["findings"]],
+                     rejected_quotes=d.get("rejected_quotes", 0),
+                     rejected_relations=d.get("rejected_relations", 0),
+                     relations=[Relation(**r) for r in d["relations"]], full_text=d.get("full_text"))
+    except (ValueError, KeyError, TypeError):
+        return None  # an unreadable entry is just a miss
+
+
+def _disk_put(key: tuple, notes: Notes) -> None:
+    path = _disk_file(key)
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "key": list(key), "source": notes.source, "parts": notes.parts,
+        "findings": [[w, f.model_dump()] for w, f in notes.findings],
+        "relations": [r.model_dump() for r in notes.relations],
+        "rejected_quotes": notes.rejected_quotes, "rejected_relations": notes.rejected_relations,
+        "full_text": notes.full_text}, ensure_ascii=False), encoding="utf-8")
+
+
+
+def history_chars() -> int:
+    """After the task (with its notes), the rest of an agent's history is kept under about this
+    many characters (settings.agent_history_chars): every request re-sends the whole history."""
+    return get_settings().agent_history_chars
 
 
 def _chars(m: ModelMessage) -> int:
@@ -311,13 +360,35 @@ def _chars(m: ModelMessage) -> int:
     return n
 
 
-def _compact(messages: list[ModelMessage], result_chars: int, page_chars: int) -> list[ModelMessage]:
+def _current_reads(messages: list[ModelMessage]) -> list[tuple[str, int]]:
+    """(tool_call_id, size) of the latest read_page of each page not written since, newest first.
+    Cutting these made writers re-read the same pages until the request limit: the page text they
+    are about to update must stay in the history."""
+    names: dict[str, str] = {}   # read_page call id -> page name
+    latest: dict[str, tuple[int, str, int]] = {}   # page -> (position, call id, size)
+    for pos, m in enumerate(messages):
+        for p in m.parts:
+            if isinstance(p, ToolCallPart) and p.tool_name in ("read_page", "write_page"):
+                name = str(p.args_as_dict().get("name", ""))
+                if p.tool_name == "read_page":
+                    names[p.tool_call_id] = name
+                else:
+                    latest.pop(name, None)   # written since: the agent knows what it wrote
+            elif isinstance(p, ToolReturnPart) and p.tool_call_id in names and isinstance(p.content, str):
+                latest[names[p.tool_call_id]] = (pos, p.tool_call_id, len(p.content))
+    return [(i, size) for _, i, size in sorted(latest.values(), reverse=True)]
+
+
+def _compact(messages: list[ModelMessage], result_chars: int, page_chars: int,
+             keep: set[str] = frozenset()) -> list[ModelMessage]:
     out = []
     for i, m in enumerate(messages):
         if isinstance(m, ModelRequest) and 0 < i < len(messages) - 2:
-            # Older tool results (an index, a page read earlier) are cut short; the latest stay whole.
-            m = replace(m, parts=[replace(p, content=p.content[:result_chars] + " ... (cut; call again for the rest)")
+            # Older tool results (an index, a page read earlier) are cut short; the latest stay
+            # whole, and so do the pages in `keep`.
+            m = replace(m, parts=[replace(p, content=p.content[:result_chars] + _CUT)
                                   if isinstance(p, ToolReturnPart) and isinstance(p.content, str)
+                                  and p.tool_call_id not in keep
                                   and len(p.content) > result_chars else p for p in m.parts])
         if isinstance(m, ModelResponse) and i < len(messages) - 1:
             parts = []
@@ -327,7 +398,7 @@ def _compact(messages: list[ModelMessage], result_chars: int, page_chars: int) -
                 if isinstance(p, ToolCallPart) and p.tool_name == "write_page":
                     args = p.args_as_dict()
                     if len(str(args.get("content", ""))) > page_chars:
-                        args = {**args, "content": f"(page written earlier, {len(str(args.get('content', '')))} "
+                        args = {**args, "content": f"{_WRITTEN}{len(str(args.get('content', '')))} "
                                                    "characters; use read_page to see it)"}
                         p = replace(p, args=args)
                 parts.append(p)
@@ -336,13 +407,61 @@ def _compact(messages: list[ModelMessage], result_chars: int, page_chars: int) -
     return out
 
 
+# The processed history is stored back as the run's history, so without this a cut would be
+# permanent: a page cut once could never be kept whole again, and placeholders were cut into
+# placeholders. Originals are kept by tool-call id (unique per call) and put back first.
+_ORIGINALS: OrderedDict[str, str] = OrderedDict()
+_ORIGINALS_MAX = 2000
+_CUT = " ... (cut; call again for the rest)"
+_WRITTEN = "(page written earlier, "
+
+
+def _remember(key: str, text: str) -> None:
+    _ORIGINALS[key] = text
+    _ORIGINALS.move_to_end(key)
+    while len(_ORIGINALS) > _ORIGINALS_MAX:
+        _ORIGINALS.popitem(last=False)
+
+
+def _restore(messages: list[ModelMessage]) -> list[ModelMessage]:
+    out = []
+    for m in messages:
+        parts = []
+        for p in m.parts:
+            if isinstance(p, ToolReturnPart) and isinstance(p.content, str):
+                if p.content.endswith(_CUT) and p.tool_call_id in _ORIGINALS:
+                    p = replace(p, content=_ORIGINALS[p.tool_call_id])
+                elif not p.content.endswith(_CUT):
+                    _remember(p.tool_call_id, p.content)
+            elif isinstance(p, ToolCallPart) and p.tool_name == "write_page":
+                content = str(p.args_as_dict().get("content", ""))
+                key = "write:" + p.tool_call_id
+                if content.startswith(_WRITTEN) and key in _ORIGINALS:
+                    p = replace(p, args={**p.args_as_dict(), "content": _ORIGINALS[key]})
+                elif not content.startswith(_WRITTEN):
+                    _remember(key, content)
+            parts.append(p)
+        out.append(replace(m, parts=parts))
+    return out
+
+
 def compact_history(messages: list[ModelMessage]) -> list[ModelMessage]:
     """Before each model request: drop earlier reasoning, replace pages the agent already wrote
-    with a placeholder (read_page fetches them) and cut older tool results. If the history is
-    still over HISTORY_CHARS, every older result and page is cut harder."""
-    out = _compact(messages, OLD_RESULT_CHARS, 300)
-    if sum(_chars(m) for m in out[1:]) > HISTORY_CHARS:
-        out = _compact(messages, 200, 0)
+    with a placeholder (read_page fetches them) and cut older tool results, but keep the current
+    text of pages it read and hasn't written yet. If the history is still over history_chars(),
+    everything else is cut harder and only the newest of those pages stay whole (up to 70%).
+    It always works from the original messages (see _restore)."""
+    messages = _restore(messages)
+    budget, reads = history_chars(), _current_reads(messages)
+    out = _compact(messages, OLD_RESULT_CHARS, 300, {i for i, _ in reads})
+    if sum(_chars(m) for m in out[1:]) > budget:
+        keep, used = set(), 0
+        for i, size in reads:
+            if used + size > budget * 0.7:
+                break
+            keep.add(i)
+            used += size
+        out = _compact(messages, 200, 0, keep)
     log.info("agent request: %d messages, %d characters (task %d, latest message %d)", len(out),
              sum(map(_chars, out)), _chars(out[0]), _chars(out[-1]))
     return out

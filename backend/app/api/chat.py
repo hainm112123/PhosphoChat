@@ -28,6 +28,7 @@ from app.chat_store import Conversation, chat_store
 from app.config import get_settings
 from app.graph import network
 from app.knowledge import topic
+from app.knowledge.citations import check_citations, unverified_note
 from app.knowledge.context import build_context
 from app.tools.agent_tools import Deps
 
@@ -133,7 +134,7 @@ async def chat(vault: str, body: ChatIn, user: User = Depends(current_user)):
         if net:
             yield event("graph", {"type": "graph", "tool": "context", **net})
         instructions = "\n\n".join(filter(None, [summary.summary_instructions(fresh.summary), context_text])) or None
-        messages, error = [], None
+        messages, error, usage = [], None, None
         # Attempt 1 uses the tools. If the provider rejects a tool the model made up, or the
         # request outgrows the model's token limit, start the answer over: without tools when
         # there is retrieved context to answer from (a small request), otherwise with the tools
@@ -148,8 +149,7 @@ async def chat(vault: str, body: ChatIn, user: User = Depends(current_user)):
                                            request_limit=get_settings().chat_request_limit,
                                            model=model, role="chat", extra_instructions=instructions):
                     if ev["type"] == "result":
-                        messages = ev["messages"][len(history):]
-                        yield event("done", {"usage": ev["usage"]})
+                        messages, usage = ev["messages"][len(history):], ev["usage"]
                     else:
                         yield event(ev["type"], ev)
                 break
@@ -178,6 +178,16 @@ async def chat(vault: str, body: ChatIn, user: User = Depends(current_user)):
                 error = explain_error(e)
                 yield event("error", {"message": error})
                 break
+        if not error and usage is not None:
+            # Check every citation before `done`: a slip (SIGNOR id with a digit changed, a page
+            # that doesn't exist) gets a note in the answer itself, so it is saved with it too.
+            try:
+                note = unverified_note(await asyncio.to_thread(check_citations, log.text, v))
+            except Exception:  # noqa: BLE001 - a check that fails must not cost the answer
+                note = None
+            if note:
+                yield event("text", {"delta": note})
+            yield event("done", {"usage": usage})
         store.add_turn(conv, question=body.message, answer=log.text, error=error, ui=log.ui,
                        messages=[] if error else messages)
         if not error:

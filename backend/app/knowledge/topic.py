@@ -113,6 +113,8 @@ post-translational modifications; signalling pathways; drugs, inhibitors and com
 diseases and their molecular mechanisms; cell biology and lab methods when they are about
 these (e.g. "how to detect TDP1 phosphorylation by western blot"); papers, notes and data on
 these subjects. A request that mixes an in-scope part with an out-of-scope part is in scope.
+A term, acronym or tool you don't recognize at all is in scope (it may come from the user's
+papers); one you know belongs to another field is not.
 
 Out of scope: everything else, e.g. cooking, sport and fitness (protein shakes too), travel,
 programming help, creative writing, general chit-chat, news, finance, other sciences with no

@@ -6,7 +6,7 @@ import json
 from datetime import date
 
 import pytest
-from pydantic_ai.messages import ModelRequest, ModelResponse, ToolCallPart, ToolReturnPart, UserPromptPart
+from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 
 from app.agents import reader
@@ -265,16 +265,62 @@ async def test_a_retried_capture_reuses_the_reading(vault, offline_claims, monke
     assert again.claims_added == first.claims_added == 2 and len(vault.read_relations()) == 2
 
 
-def test_a_long_history_is_cut_under_the_budget():
+def test_a_long_history_is_cut_under_the_budget(monkeypatch):
+    from app.config import get_settings
     big = "z" * 3000
     msgs = [ModelRequest(parts=[UserPromptPart("capture " + "n" * 7000)])]   # the task and notes stay whole
     for i in range(8):
         msgs += [ModelResponse(parts=[ToolCallPart("read_page", {"name": f"p{i}"}, tool_call_id=f"c{i}")]),
                  ModelRequest(parts=[ToolReturnPart("read_page", big, tool_call_id=f"c{i}")])]
+    monkeypatch.setattr(get_settings(), "agent_history_chars", 14000)
     out = compact_history(msgs)
     assert len(out[0].parts[0].content) > 7000
-    assert sum(reader._chars(m) for m in out[1:]) <= reader.HISTORY_CHARS
+    assert sum(reader._chars(m) for m in out[1:]) <= 14000
     assert out[-1].parts[0].content == big
+    whole = [p for m in out for p in m.parts if isinstance(p, ToolReturnPart) and p.content == big]
+    assert len(whole) == 3   # the newest pages read stay whole, up to 70% of the budget
+
+
+def test_pages_being_updated_stay_whole_until_written():
+    """Cutting a page read earlier made writers re-read it until the request limit."""
+    page = "p" * 5000
+    msgs = [ModelRequest(parts=[UserPromptPart("capture")])]
+    for i, name in enumerate(["a", "b", "c"]):
+        msgs += [ModelResponse(parts=[ToolCallPart("read_page", {"name": name}, tool_call_id=f"r{i}")]),
+                 ModelRequest(parts=[ToolReturnPart("read_page", page, tool_call_id=f"r{i}")])]
+    msgs += [ModelResponse(parts=[ToolCallPart("write_page", {"name": "a", "content": "new"}, tool_call_id="w")]),
+             ModelRequest(parts=[ToolReturnPart("write_page", "ok", tool_call_id="w")])]
+    out = compact_history(msgs)
+    returns = {p.tool_call_id: p.content for m in out for p in m.parts if isinstance(p, ToolReturnPart)}
+    assert returns["r1"] == returns["r2"] == page      # read, not written yet: whole
+    assert "cut" in returns["r0"]                      # written since: cut as before
+
+
+def test_cuts_are_not_permanent_when_the_history_is_stored_back(monkeypatch):
+    """The run stores the processed history; a page cut once must come back whole when it is
+    current again, and placeholders must not be cut into placeholders."""
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "agent_history_chars", 12000)
+    page = "q" * 5000
+    msgs = [ModelRequest(parts=[UserPromptPart("capture")])]
+
+    def read(name, cid):
+        return [ModelResponse(parts=[ToolCallPart("read_page", {"name": name}, tool_call_id=cid)]),
+                ModelRequest(parts=[ToolReturnPart("read_page", page, tool_call_id=cid)])]
+    for i, name in enumerate(["a", "b", "c", "d"]):
+        msgs = compact_history(msgs + read(name, f"r{i}"))       # what the run keeps
+    assert any("cut" in p.content for m in msgs for p in m.parts if isinstance(p, ToolReturnPart))
+    msgs = compact_history(msgs + [
+        ModelResponse(parts=[ToolCallPart("write_page", {"name": n, "content": "w" * 900}, tool_call_id=f"w{n}")
+                             for n in "bcd"]),
+        ModelRequest(parts=[ToolReturnPart("write_page", "ok", tool_call_id=f"w{n}") for n in "bcd"])])
+    msgs = compact_history(msgs + [ModelResponse(parts=[TextPart("thinking")]),
+                                   ModelRequest(parts=[UserPromptPart("go on")])])
+    returns = {p.tool_call_id: p.content for m in msgs for p in m.parts if isinstance(p, ToolReturnPart)}
+    assert returns["r0"] == page          # "a" is the only page not yet written: whole again
+    writes = [p.args_as_dict()["content"] for m in msgs for p in m.parts
+              if isinstance(p, ToolCallPart) and p.tool_name == "write_page"]
+    assert all(w.startswith("(page written earlier, 900 characters") for w in writes)
 
 
 async def test_a_part_too_large_for_the_model_is_read_in_halves(vault, offline_claims, monkeypatch):
@@ -297,3 +343,23 @@ async def test_a_part_too_large_for_the_model_is_read_in_halves(vault, offline_c
     with reader_agent().override(model=FunctionModel(fn)):
         notes = await read_in_parts(vault, name, emit, [])
     assert notes.failed_parts == 0 and notes.parts > len(split_parts(body, 4000)) and max(sizes[-1:]) <= 3000
+
+
+async def test_readings_can_be_kept_on_disk_across_processes(vault, offline_claims, monkeypatch, tmp_path):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "capture_part_chars", 4000)
+    monkeypatch.setenv("READING_CACHE_DIR", str(tmp_path / "readings"))
+    name = vault.save_source(title="Long paper", body=_long_paper(), source_url="pasted", content_type="paper")
+    seen = []
+
+    async def emit(ev):
+        pass
+    with reader_agent().override(model=_notes_model(seen)):
+        first = await read_in_parts(vault, name, emit, [])
+        calls = len(seen)
+        reader._cache.clear()                     # a new process: nothing in memory
+        vault.relations_path.unlink()
+        again = await read_in_parts(vault, name, emit, [])
+    assert len(seen) == calls and list((tmp_path / "readings").glob("*.json"))
+    assert [f.quote for _, f in again.findings] == [f.quote for _, f in first.findings]
+    assert again.claims_added == 2 and len(vault.read_relations()) == 2

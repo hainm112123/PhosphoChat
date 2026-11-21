@@ -57,7 +57,14 @@ class Settings(BaseSettings):
     max_upload_mb: int = 60            # largest file accepted by capture
     model_timeout_seconds: int = 300   # per model request; a stalled request is retried
     capture_part_chars: int = 9000     # code reads every source in parts of this size
-    capture_notes_chars: int = 7000    # reading notes handed to the writer, per job
+    # Reading notes handed to the writer, per job. 14000 kept every key fact the reader found on
+    # the pilot papers (7000 dropped up to half). A model with a small per-request cap (Groq free
+    # tier) gets a 413, and the writer retries with notes halved.
+    capture_notes_chars: int = 14000
+    # A job agent's history after its task, re-sent with every request. 40000 keeps the 3-4 pages
+    # a capture updates (8-9k each on the pilot) whole; at 14000 writers re-read pages until the
+    # request limit. Lower it for a model with a small per-request cap (Groq free tier: 14000).
+    agent_history_chars: int = 40000
     # Sections the reader skips (a regex matched against `## ` headings, case-insensitive).
     capture_skip_sections: str = (
         r"references?|bibliography|acknowledge?ments?|author contributions?|contributions|"

@@ -13,7 +13,8 @@ from __future__ import annotations
 import argparse
 import time
 
-from eval.common import DATASET, RESULTS, add_groq_key_arg, app_client, load, save, set_role_model, use_groq_key
+from eval.common import (DATASET, RESULTS, add_groq_key_arg, app_client, load, record_run, save, set_role_model,
+                         use_groq_key)
 
 
 def wait(client, job_id: str, timeout: float) -> dict:
@@ -82,6 +83,12 @@ def main() -> None:
             for attempt in range(1, a.attempts + 1):
                 if capture_one(client, a, name, data, out, out_path, attempt) == "succeeded":
                     break
+    rows = [out["papers"][n] for n in papers if n in out["papers"]]
+    run = record_run("capture", vault=a.vault, result=out_path.name, papers=papers,
+                     succeeded=sum(1 for r in rows if r.get("status") == "succeeded"),
+                     input_tokens=sum(r.get("input_tokens") or 0 for r in rows),
+                     requests=sum(r.get("requests") or 0 for r in rows))
+    print(f"run {run} -> {out_path.name}")
 
 
 def capture_one(client, a, name: str, data: bytes, out: dict, out_path, attempt: int) -> str:

@@ -8,13 +8,26 @@ import { Link } from "react-router-dom";
 //   > [!warning] Title          -> callout box
 //   SIGNOR-277418, PMID 123456  -> external links
 
+/** Common link slips by chat models, repaired before rendering. Keep in step with
+ *  backend/app/knowledge/citations.py::repair_links. */
+export function repairLinks(md: string): string {
+  return md
+    .replace(/\[\[\s*source:\s*\[\[([^\]]+)\]\]\s*(?:\|\s*([^\]]+?))?\s*\]\]/gi,  // [[source: [[page]] | file.md]]
+      (_, page, file) => `[[${page}]]` + (file ? ` [[source: ${file}]]` : ""))
+    .replace(/\[{3,}/g, "[[").replace(/\]{3,}/g, "]]")                        // [[[[page]]]] -> [[page]]
+    .replace(/\[\[\s*([a-z0-9][a-z0-9-]*)\s*[,;]\s*source:\s*([^\]]+?)\s*\]\]/gi,  // [[page, source: file.md]]
+      "[[$1]] [[source: $2]]")
+    .replace(/\[\[\s*(?!source\s*:)[a-z][a-z-]*\s*:\s*([a-z0-9][a-z0-9-]*)\s*\]\]/gi, "[[$1]]")  // [[id: page]]
+    .replace(/\[\[-+([^\]]+)\]\]/g, "[[$1]]");                                 // [[-page]]
+}
+
 function linkify(md: string, vault: string): string {
   // Leave fenced and inline code alone.
   return md
     .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
     .map((chunk, i) => {
       if (i % 2 === 1) return chunk;
-      return chunk
+      return repairLinks(chunk)
         .replace(/\[\[\s*source:\s*([^\]|]+?)\s*\]\]/gi, (_, f) =>
           `[${f}](/${vault}/sources/${encodeURIComponent(f)} "source")`)
         .replace(/\[\[([^\]|#]+?)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g, (_, p, label) => {

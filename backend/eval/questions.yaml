@@ -31,6 +31,11 @@
     - Yes, CDK1 phosphorylates RB1 (reported by SIGNOR, PhosphoSitePlus, EPSD and iPTMNet).
     - Sites include Ser249, Thr252, Thr373, Ser807 and Ser811.
 
+- id: D6
+  type: database
+  question: List every kinase that phosphorylates TP53 according to the databases.
+  gold: {kind: regulators, protein: TP53}
+
 - id: P1
   type: paper
   paper: s41467-025-59779-y.pdf
@@ -80,13 +85,30 @@
 
 - id: P6
   type: paper
-  paper: 1-s2.0-S2405471220302428-main.pdf
-  question: How well can protein and phosphoprotein levels in tumors be predicted from genomic and transcriptomic data?
+  paper: 1-s2.0-S2666979X25001077-main.pdf
+  question: What is PROTsi, and what did my sources use it for?
   key_facts:
-    - Assessed through the NCI-CPTAC DREAM proteogenomics challenge (crowdsourced, blinded).
-    - Ensemble models performed best.
-    - Proteins in metabolic pathways were predicted best and proteins in complexes worst.
-    - Performance was limited overall; (phospho)proteomics cannot yet be replaced by genomic and transcriptomic profiling.
+    - PROTsi is a protein-expression-based stemness index that measures oncogenic dedifferentiation.
+    - It was validated on CPTAC datasets across 11 tumor types.
+    - Integrated with multi-omics (including post-translational modifications), it identified stemness-associated proteins acting as active nodes in transcriptional networks.
+    - Proteins highly correlated with stemness were proposed as drug targets (shared and tumor-specific) with predictive value for clinical outcome, confirmed by immunohistochemistry.
+
+- id: P7
+  type: paper
+  paper: 1495.pdf
+  question: In my sources, which signaling proteins showed the fastest phosphorylation increase after cold ischemia?
+  key_facts:
+    - A cluster with a rapid phosphorylation increase within 5 minutes of cold ischemia included MAPK12, MAPK13, MAPK14, SHC1, GAB1 and SHIP.
+    - It also included increased phosphorylation of mitogenic nodes on SHC1, GAB1, and MAPK1 and MAPK3 sites.
+
+- id: P8
+  type: paper
+  paper: nature18003.pdf
+  question: What phosphosite markers did my sources find for PIK3CA-mutated breast tumours?
+  key_facts:
+    - 62 phosphosites were positively associated with PIK3CA mutation (FDR < 0.05), including the kinases RPS6KA5 and EIF2AK4.
+    - Their average phosphorylation gave a read-out of PI3K pathway activity; 15 of 26 PIK3CA-mutated tumours (58%) showed an activated signature.
+    - The signature was activated in all tumours with helical-domain PIK3CA mutations but in only 2 of 10 with kinase-domain mutations.
 
 - id: X1
   type: cross
@@ -121,6 +143,12 @@
   question: What do my sources say about LRRK2 phosphorylation of Rab GTPases?
   key_facts:
     - The user's sources/wiki contain nothing on LRRK2 and Rab GTPases; the answer should say so rather than invent.
+
+- id: N2
+  type: negative
+  question: What do my sources say about single-cell RNA sequencing of BRAF inhibitor resistance in melanoma?
+  key_facts:
+    - The user's sources/wiki contain nothing on single-cell RNA sequencing or BRAF inhibitor resistance in melanoma; the answer should say so rather than use loosely related material.
 
 - id: O1
   type: offtopic

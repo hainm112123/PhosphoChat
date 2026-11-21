@@ -18,8 +18,8 @@ import argparse
 import asyncio
 import re
 
-from eval.common import RESULTS, add_groq_key_arg, load, save, use_groq_key
-from eval.judges import JUDGE_MODEL, clip, judge
+from eval.common import RESULTS, add_groq_key_arg, load, save, slug, use_groq_key
+from eval.judges import clip, judge, judge_model, set_judge_model
 
 CITE_RE = re.compile(r"\[\[source:|SIGNOR-\d+|PMID\s*:?\s*\d+", re.I)
 PHOS_RE = re.compile(r"\b(?:de)?phosphorylat\w*", re.I)
@@ -74,13 +74,21 @@ def context_around(text: str, quote: str, n: int = 500) -> str:
     return flat[max(0, i - n): i + len(q) + n] if i >= 0 else quote
 
 
-async def score_paper(vault, row: dict) -> dict:
+async def score_paper(vault, row: dict, use_judge: bool = True) -> dict:
     from app.knowledge.claims import list_claims
     source = row["source"]
     src_text = vault.source_path(source).read_text(encoding="utf-8", errors="replace")
     pages = sorted(set(row["pages_created"]) | set(row["pages_updated"]))
     out = {"coverage": coverage(row, src_text), "pages": page_stats(vault, pages)}
     wiki = "\n\n".join(f"=== PAGE {p} ===\n{vault.read_page(p)}" for p in pages)
+    if not use_judge:
+        out["claims"] = _claims_rows(vault, source)
+        cands = relation_sentences(src_text)
+        claimed = {(c["enzyme"].upper(), c["target"].upper()) for c in out["claims"]}
+        out["recall_proxy"] = {"candidate_sentences": len(cands), "covered_by_claims": sum(
+            1 for s in cands if any(e in map(str.upper, s["proteins"]) and t in map(str.upper, s["proteins"])
+                                    for e, t in claimed))}
+        return out
 
     g = await judge("grounding", f"=== SOURCE ===\n{clip(src_text)}\n\n{wiki}")
     out["grounding"] = {"statements_checked": g.statements_checked,
@@ -111,24 +119,36 @@ async def score_paper(vault, row: dict) -> dict:
     return out
 
 
-async def main_async(vault_name: str) -> None:
+def _claims_rows(vault, source: str) -> list[dict]:
+    from app.knowledge.claims import list_claims
+    return [{k: c.get(k) for k in ("id", "enzyme", "target", "site", "mechanism", "effect", "status", "quote", "review")}
+            for c in list_claims(vault) if c.get("source") == source]
+
+
+async def main_async(vault_name: str, tier: str = "judge") -> None:
     from app.api.deps import registry
     from app.config import get_settings
     get_settings().topic_guard = False
     cap = load(RESULTS / f"capture-{vault_name}.json")
-    path = RESULTS / f"score-capture-{vault_name}.json"
-    scores = load(path, {"vault": vault_name, "judge": JUDGE_MODEL, "papers": {}})
+    who = "code" if tier == "code" else slug(judge_model())
+    path = RESULTS / f"score-capture-{vault_name}-{who}.json"
+    scores = load(path, {"vault": vault_name, "judge": None if tier == "code" else judge_model(), "papers": {}})
     vault = registry().get(vault_name)
     for name, row in cap["papers"].items():
         if row.get("status") != "succeeded" or name in scores["papers"]:
             continue
         print(f"scoring {name} ...", flush=True)
-        scores["papers"][name] = await score_paper(vault, row)
+        try:
+            scores["papers"][name] = await score_paper(vault, row, use_judge=tier != "code")
+        except Exception as e:  # noqa: BLE001 - not saved, so the next run tries this paper again
+            print(f"  judge failed ({type(e).__name__}); {name} skipped for now", flush=True)
+            continue
         save(path, scores)
         s = scores["papers"][name]
+        g = s.get("grounding")
         print(f"  reader got {s['coverage']['share_read']:.0%} of the source; {len(s['pages'])} pages; "
-              f"{len(s['grounding']['unsupported'])}/{s['grounding']['statements_checked']} unsupported; "
-              f"{len(s['claims'])} claims", flush=True)
+              + (f"{len(g['unsupported'])}/{g['statements_checked']} unsupported; " if g else "")
+              + f"{len(s['claims'])} claims", flush=True)
     scores["lint"] = {k: v for k, v in vault.lint_mechanical().items() if v}
     save(path, scores)
 
@@ -136,10 +156,14 @@ async def main_async(vault_name: str) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--vault", required=True)
+    ap.add_argument("--tier", choices=["code", "judge"], default="judge",
+                    help="code: mechanical checks only (free); judge: plus the LLM judge")
+    ap.add_argument("--judge-model", help="default: JUDGE_MODEL env var, else compat:cliproxy:claude-sonnet-4-6")
     add_groq_key_arg(ap)
     a = ap.parse_args()
     use_groq_key(a.groq_key)
-    asyncio.run(main_async(a.vault))
+    set_judge_model(a.judge_model)
+    asyncio.run(main_async(a.vault, a.tier))
 
 
 if __name__ == "__main__":
